@@ -76,18 +76,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Create project
+        run: |
+          mkdir project
+          cd project
+          zig init
+
       - name: Setup Zig (with cache)
         uses: ./
         with:
           version: latest
           cache: true
 
-      - name: Create project
-        run: |
-          mkdir project
-          cd project
-
-          zig init
       - name: First build (populate cache)
         run: |
           cd project

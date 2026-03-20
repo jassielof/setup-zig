@@ -40,14 +40,16 @@ runs:
       run: |
         set -e
 
-        FILES_HASH=$(cat ${{ inputs.cache-dependency-path }} 2>/dev/null | sha256sum | cut -d ' ' -f1 || echo "nohash")
+        HASH="nohash"
 
-        TARGET="${{ inputs.target }}"
-        if [ -z "$TARGET" ]; then
-          TARGET="default"
+        if compgen -G "${{ inputs.cache-dependency-path }}" > /dev/null; then
+          HASH=$(sha256sum ${{ inputs.cache-dependency-path }} | sha256sum | cut -d ' ' -f1)
         fi
 
-        KEY="zig-${{ runner.os }}-${{ inputs.version }}-${TARGET}-${FILES_HASH}"
+        TARGET="${{ inputs.target }}"
+        [ -z "$TARGET" ] && TARGET="default"
+
+        KEY="zig-${{ runner.os }}-${{ inputs.version }}-${TARGET}-${HASH}"
 
         echo "key=$KEY" >> $GITHUB_OUTPUT
 
