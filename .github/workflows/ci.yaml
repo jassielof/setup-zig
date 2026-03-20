@@ -74,13 +74,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Create project
-        run: |
-          mkdir project
-          cd project
-          zig init
+        uses: actions/checkout@v4
 
       - name: Setup Zig (with cache)
         uses: ./
@@ -88,18 +82,24 @@ jobs:
           version: latest
           cache: true
 
+      - name: Create project
+        run: |
+          mkdir project
+          cd project
+          zig init
+
       - name: First build (populate cache)
         run: |
           cd project
           zig build --summary all
 
-      - name: Second run (should hit cache)
+      - name: Second run (restore cache)
         uses: ./
         with:
           version: latest
           cache: true
 
-      - name: Second build (expect faster / cached)
+      - name: Second build (should be cached)
         run: |
           cd project
           zig build --summary all

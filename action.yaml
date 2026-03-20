@@ -20,8 +20,8 @@ inputs:
   cache-path:
     description: The paths to cache, separated by newlines. Defaults to Zig's cache and output paths.
     default: |
-      .zig-cache
-      zig-out
+      **/.zig-cache
+      **/zig-out
   target:
     description: Zig target to improve cache correctness
 
@@ -40,16 +40,10 @@ runs:
       run: |
         set -e
 
-        HASH="nohash"
-
-        if compgen -G "${{ inputs.cache-dependency-path }}" > /dev/null; then
-          HASH=$(sha256sum ${{ inputs.cache-dependency-path }} | sha256sum | cut -d ' ' -f1)
-        fi
-
         TARGET="${{ inputs.target }}"
         [ -z "$TARGET" ] && TARGET="default"
 
-        KEY="zig-${{ runner.os }}-${{ inputs.version }}-${TARGET}-${HASH}"
+        KEY="zig-${{ runner.os }}-${{ inputs.version }}-${TARGET}"
 
         echo "key=$KEY" >> $GITHUB_OUTPUT
 
