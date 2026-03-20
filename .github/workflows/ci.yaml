@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, ${{ matrix.version }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        version: [latest, master, 0.12.0]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig (${{ matrix.version }})
+        uses: ./
+        with:
+          version: ${{ matrix.version }}
+
+      - name: Verify installation
+        shell: bash
+        run: |
+          echo "=== Zig Version ==="
+          zig version
+          echo ""
+
+          echo "=== Zig Path ==="
+          which zig || echo "which not available"
+          where zig || echo "where not available"
+
+      - name: Build simple program
+        shell: bash
+        run: |
+          mkdir -p test
+
+          cat > test/main.zig << 'EOF'
+          const std = @import("std");
+
+          pub fn main() !void {
+              const stdout = std.io.getStdOut().writer();
+              try stdout.print("Hello from Zig CI!\n", .{});
+          }
+          EOF
+
+          zig build-exe test/main.zig -O ReleaseFast -femit-bin=test/app
+
+          echo "=== Running binary ==="
+          ./test/app || test\\app.exe
+
+      - name: Build with zig build (cache test)
+        shell: bash
+        run: |
+          mkdir -p project
+
+          cat > project/build.zig << 'EOF'
+          const std = @import("std");
+
+          pub fn build(b: *std.Build) void {
+              const exe = b.addExecutable(.{
+                  .name = "demo",
+                  .root_source_file = .{ .path = "src/main.zig" },
+              });
+
+              exe.install();
+          }
+          EOF
+
+          mkdir -p project/src
+
+          cat > project/src/main.zig << 'EOF'
+          const std = @import("std");
+
+          pub fn main() !void {
+              std.debug.print("Build system works!\n", .{});
+          }
+          EOF
+
+          cd project
+          zig build
+
+          echo "=== Built files ==="
+          ls -R
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zig-build-${{ matrix.os }}-${{ matrix.version }}
+          path: |
+            test/
+            project/zig-out/
+
+  test-cache:
+    name: Test Cache Behavior
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig (with cache)
+        uses: ./
+        with:
+          version: latest
+          cache: true
+
+      - name: Create project
+        run: |
+          mkdir -p project/src
+
+          cat > project/build.zig << 'EOF'
+          const std = @import("std");
+
+          pub fn build(b: *std.Build) void {
+              const exe = b.addExecutable(.{
+                  .name = "cache-test",
+                  .root_source_file = .{ .path = "src/main.zig" },
+              });
+
+              exe.install();
+          }
+          EOF
+
+          cat > project/src/main.zig << 'EOF'
+          const std = @import("std");
+
+          pub fn main() !void {
+              std.debug.print("Cache test\n", .{});
+          }
+          EOF
+
+      - name: First build (populate cache)
+        run: |
+          cd project
+          zig build
+
+      - name: Second run (should hit cache)
+        uses: ./
+        with:
+          version: latest
+          cache: true
+
+      - name: Second build (expect faster / cached)
+        run: |
+          cd project
+          zig build
+
+      - name: Verify output
+        run: |
+          ./project/zig-out/bin/cache-test

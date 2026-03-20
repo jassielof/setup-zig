@@ -1,0 +1,59 @@
+name: Setup Zig
+description: Set up Zig in GitHub Actions for use in your workflow.
+author: Jassiel Ovando
+
+branding:
+  color: yellow
+  icon: zap
+inputs:
+  version:
+    description: The version to install, either a specific, master (from Git development branch) or default to the latest stable.
+    default: latest
+  cache:
+    description: Enable caching of build artifacts.
+    default: "false"
+  cache-dependency-path:
+    description: Dependency files affecting cache (glob).
+    default: |
+      build.zig
+      build.zig.zon
+  cache-path:
+    description: The paths to cache, separated by newlines. Defaults to Zig's cache and output paths.
+    default: |
+      .zig-cache
+      zig-out
+  target:
+    description: Zig target to improve cache correctness
+
+runs:
+  using: composite
+  steps:
+    - name: Install Zig
+      shell: bash
+      run: |
+        python3 "${{ github.action_path }}/scripts/installer.py" --version "${{ inputs.version }}"
+
+    - name: Compute cache key
+      id: cache-key
+      if: inputs.cache == 'true'
+      shell: bash
+      run: |
+        set -e
+
+        FILES_HASH=$(cat ${{ inputs.cache-dependency-path }} 2>/dev/null | sha256sum | cut -d ' ' -f1 || echo "nohash")
+
+        TARGET="${{ inputs.target }}"
+        if [ -z "$TARGET" ]; then
+          TARGET="default"
+        fi
+
+        KEY="zig-${{ runner.os }}-${{ inputs.version }}-${TARGET}-${FILES_HASH}"
+
+        echo "key=$KEY" >> $GITHUB_OUTPUT
+
+    - name: Restore cache
+      if: inputs.cache == 'true'
+      uses: actions/cache@v5
+      with:
+        path: ${{ inputs.cache-path }}
+        key: ${{ steps.cache-key.outputs.key }}
