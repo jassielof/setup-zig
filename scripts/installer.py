@@ -102,6 +102,14 @@ def add_to_path(path):
         print(f"Add to PATH manually: {path}")
 
 
+def find_zig_binary(root):
+    for dirpath, _, filenames in os.walk(root):
+        for name in filenames:
+            if name == "zig" or name == "zig.exe":
+                return os.path.join(dirpath, name)
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--version", default="latest")
@@ -131,9 +139,13 @@ def main():
         print(f"Installing to {install_dir}...")
         install(extracted, install_dir)
 
-    add_to_path(install_dir)
+    zig_bin = find_zig_binary(install_dir)
+    if not zig_bin:
+        raise RuntimeError("Zig binary not found after installation")
 
-    zig_bin = os.path.join(install_dir, "zig.exe" if os_name == "windows" else "zig")
+    zig_dir = os.path.dirname(zig_bin)
+
+    add_to_path(zig_dir)
 
     print("Zig installed:")
     subprocess.run([zig_bin, "version"], check=True)
