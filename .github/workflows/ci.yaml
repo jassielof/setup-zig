@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        version: [latest, master, 0.12.0]
+        version: [latest, master, 0.15.2]
 
     steps:
       - name: Checkout
