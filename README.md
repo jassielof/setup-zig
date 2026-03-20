@@ -22,7 +22,12 @@ Fast, cross-platform Zig installer for GitHub Actions with smart caching.
 | --------------------- | ----------------------------------------- |
 | version               | Zig version (`latest`, `master`, `0.x.x`) |
 | cache                 | Enable caching                            |
-| cache-dependency-path | Files affecting cache                     |
+| cache-dependency-path | Files hashed into cache key               |
 | cache-path            | Paths to cache                            |
 | target                | Target triple                             |
+
+## Notes
+
+- The cache key includes OS, Zig version, target, and a hash of `cache-dependency-path`.
+- A Python runtime is required on the runner (`python3`, `python`, or `py -3`).
 

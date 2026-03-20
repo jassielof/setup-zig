@@ -31,7 +31,16 @@ runs:
     - name: Install Zig
       shell: bash
       run: |
-        python3 "${{ github.action_path }}/scripts/installer.py" --version "${{ inputs.version }}"
+        if command -v python3 >/dev/null 2>&1; then
+          python3 "${{ github.action_path }}/scripts/installer.py" --version "${{ inputs.version }}"
+        elif command -v python >/dev/null 2>&1; then
+          python "${{ github.action_path }}/scripts/installer.py" --version "${{ inputs.version }}"
+        elif command -v py >/dev/null 2>&1; then
+          py -3 "${{ github.action_path }}/scripts/installer.py" --version "${{ inputs.version }}"
+        else
+          echo "Python runtime not found on PATH" >&2
+          exit 1
+        fi
 
     - name: Compute cache key
       id: cache-key
@@ -43,7 +52,7 @@ runs:
         TARGET="${{ inputs.target }}"
         [ -z "$TARGET" ] && TARGET="default"
 
-        KEY="zig-${{ runner.os }}-${{ inputs.version }}-${TARGET}"
+        KEY="zig-${{ runner.os }}-${{ inputs.version }}-${TARGET}-${{ hashFiles(inputs.cache-dependency-path) }}"
 
         echo "key=$KEY" >> $GITHUB_OUTPUT
 

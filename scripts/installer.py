@@ -76,13 +76,33 @@ def extract(archive, dest):
             z.extractall(dest)
     else:
         with tarfile.open(archive) as t:
+            abs_dest = os.path.abspath(dest)
+
+            # Guard against path traversal in tar archives.
+            for member in t.getmembers():
+                member_path = os.path.abspath(os.path.join(dest, member.name))
+                if os.path.commonpath([abs_dest, member_path]) != abs_dest:
+                    raise RuntimeError(f"Unsafe path in archive: {member.name}")
+
             t.extractall(dest)
 
 
 def find_extracted_dir(dest):
-    entries = os.listdir(dest)
-    if len(entries) == 1:
-        return os.path.join(dest, entries[0])
+    entries = [os.path.join(dest, name) for name in os.listdir(dest)]
+    dirs = [path for path in entries if os.path.isdir(path)]
+
+    if len(dirs) == 1:
+        return dirs[0]
+
+    for path in dirs:
+        if os.path.exists(os.path.join(path, "zig")) or os.path.exists(
+            os.path.join(path, "zig.exe")
+        ):
+            return path
+
+    if not dirs:
+        raise RuntimeError("No extracted directory found in archive")
+
     return dest
 
 
@@ -127,14 +147,16 @@ def main():
         archive_path = os.path.join(
             tmp, "zig.tar.xz" if os_name != "windows" else "zig.zip"
         )
+        extract_dir = os.path.join(tmp, "extract")
+        os.mkdir(extract_dir)
 
         print(f"Downloading Zig {version}...")
         download(url, archive_path)
 
         print("Extracting...")
-        extract(archive_path, tmp)
+        extract(archive_path, extract_dir)
 
-        extracted = find_extracted_dir(tmp)
+        extracted = find_extracted_dir(extract_dir)
 
         print(f"Installing to {install_dir}...")
         install(extracted, install_dir)
