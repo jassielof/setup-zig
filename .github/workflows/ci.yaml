@@ -39,7 +39,7 @@ jobs:
       - name: Build simple program
         shell: bash
         run: |
-          mkdir test
+          mkdir -p test
           cd test
 
           zig init
@@ -51,7 +51,7 @@ jobs:
       - name: Build with zig build (cache test)
         shell: bash
         run: |
-          mkdir project
+          mkdir -p project
           cd project
 
           zig init
@@ -84,7 +84,7 @@ jobs:
 
       - name: Create project
         run: |
-          mkdir project
+          mkdir -p project
           cd project
           zig init
 
