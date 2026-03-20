@@ -1,4 +1,4 @@
-name: Setup Zig
+name: Set up Zig Toolchain
 description: Set up Zig in GitHub Actions for use in your workflow.
 author: Jassiel Ovando
 
