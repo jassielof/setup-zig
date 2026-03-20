@@ -39,20 +39,14 @@ jobs:
       - name: Build simple program
         shell: bash
         run: |
-          mkdir -p test
+          mkdir test
+          cd test
 
-          cat > test/main.zig << 'EOF'
-          const std = @import("std");
-
-          pub fn main() !void {
-              try std.debug.print("Hello, Zig!\n", .{});
-          }
-          EOF
-
-          zig build-exe test/main.zig -O ReleaseFast -femit-bin=test/app
+          zig init
+          zig build --summary all
 
           echo "=== Running binary ==="
-          ./test/app || test\\app.exe
+          zig build run --summary all
 
       - name: Build with zig build (cache test)
         shell: bash
