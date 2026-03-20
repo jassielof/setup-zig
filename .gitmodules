@@ -1,0 +1,6 @@
+[submodule "references/jetsung"]
+	path = references/jetsung
+	url = https://github.com/jetsung/setup-zig
+[submodule "references/mlugg"]
+	path = references/mlugg
+	url = https://codeberg.org/mlugg/setup-zig
