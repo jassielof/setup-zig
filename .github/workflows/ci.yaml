@@ -45,8 +45,7 @@ jobs:
           const std = @import("std");
 
           pub fn main() !void {
-              const stdout = std.io.getStdOut().writer();
-              try stdout.print("Hello from Zig CI!\n", .{});
+              try std.debug.print("Hello, Zig!\n", .{});
           }
           EOF
 
@@ -58,33 +57,11 @@ jobs:
       - name: Build with zig build (cache test)
         shell: bash
         run: |
-          mkdir -p project
-
-          cat > project/build.zig << 'EOF'
-          const std = @import("std");
-
-          pub fn build(b: *std.Build) void {
-              const exe = b.addExecutable(.{
-                  .name = "demo",
-                  .root_source_file = .{ .path = "src/main.zig" },
-              });
-
-              exe.install();
-          }
-          EOF
-
-          mkdir -p project/src
-
-          cat > project/src/main.zig << 'EOF'
-          const std = @import("std");
-
-          pub fn main() !void {
-              std.debug.print("Build system works!\n", .{});
-          }
-          EOF
-
+          mkdir project
           cd project
-          zig build
+
+          zig init
+          zig build --summary all
 
           echo "=== Built files ==="
           ls -R
@@ -113,33 +90,14 @@ jobs:
 
       - name: Create project
         run: |
-          mkdir -p project/src
+          mkdir project
+          cd project
 
-          cat > project/build.zig << 'EOF'
-          const std = @import("std");
-
-          pub fn build(b: *std.Build) void {
-              const exe = b.addExecutable(.{
-                  .name = "cache-test",
-                  .root_source_file = .{ .path = "src/main.zig" },
-              });
-
-              exe.install();
-          }
-          EOF
-
-          cat > project/src/main.zig << 'EOF'
-          const std = @import("std");
-
-          pub fn main() !void {
-              std.debug.print("Cache test\n", .{});
-          }
-          EOF
-
+          zig init
       - name: First build (populate cache)
         run: |
           cd project
-          zig build
+          zig build --summary all
 
       - name: Second run (should hit cache)
         uses: ./
@@ -150,7 +108,7 @@ jobs:
       - name: Second build (expect faster / cached)
         run: |
           cd project
-          zig build
+          zig build --summary all
 
       - name: Verify output
         run: |
