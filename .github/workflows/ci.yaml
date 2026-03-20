@@ -106,4 +106,4 @@ jobs:
 
       - name: Verify output
         run: |
-          ./project/zig-out/bin/cache-test
+          ./project/zig-out/bin/project
