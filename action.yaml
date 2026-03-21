@@ -11,7 +11,7 @@ inputs:
     default: latest
   cache:
     description: Enable caching of the Zig toolchain (~/.zig) and build artifacts.
-    default: "false"
+    default: "true"
   cache-toolchain:
     description: When cache is enabled, save and restore the Zig install under ~/.zig separately from build artifacts.
     default: "true"
