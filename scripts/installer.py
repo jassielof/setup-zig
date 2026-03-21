@@ -114,6 +114,13 @@ def _write_marker(install_dir: str, content: str) -> None:
 # ---------------------------------------------------------------------------
 
 def find_zig_binary(root: str) -> Optional[str]:
+    # After installation the binary sits directly in the root directory.
+    # Checking those two paths avoids an os.walk over ~18 000 files on Windows.
+    for name in ("zig.exe", "zig"):
+        candidate = os.path.join(root, name)
+        if os.path.isfile(candidate):
+            return candidate
+    # Fallback for unusual layouts
     for dirpath, _, filenames in os.walk(root):
         for name in filenames:
             if name in ("zig", "zig.exe"):
@@ -143,21 +150,25 @@ def _curl_bin() -> Optional[str]:
     return shutil.which("curl") or (shutil.which("curl.exe") if sys.platform == "win32" else None)
 
 
-def _download_urllib(url: str, dest: str) -> None:
-    with urllib.request.urlopen(url) as resp, open(dest, "wb") as f:
-        shutil.copyfileobj(resp, f)
-
-
 def _download(url: str, dest: str) -> None:
-    """Download to dest; prefer curl (HTTP/2, faster) over urllib."""
-    curl = _curl_bin()
-    if curl:
-        subprocess.run(
-            [curl, "-sL", "--fail", "--retry", "3", "-o", dest, url],
-            check=True,
-        )
-        return
-    _download_urllib(url, dest)
+    """Download url to dest with progress, using urllib (no subprocess overhead)."""
+    with urllib.request.urlopen(url) as resp, open(dest, "wb") as f:
+        total_n = resp.headers.get("Content-Length")
+        total_n = int(total_n) if total_n and total_n.isdigit() else None
+        read_n = 0
+        chunk = 1 << 20  # 1 MiB
+        next_pct = 0
+        while True:
+            buf = resp.read(chunk)
+            if not buf:
+                break
+            f.write(buf)
+            read_n += len(buf)
+            if total_n:
+                pct = int(100 * read_n / total_n)
+                if pct >= next_pct:
+                    log(f"download {pct}% ({read_n >> 20} / {max(1, total_n >> 20)} MiB)")
+                    next_pct = min(100, pct + 25)
 
 
 # ---------------------------------------------------------------------------
@@ -187,14 +198,27 @@ def _extract(archive: str, dest: str, os_name: str) -> None:
             subprocess.run([tar_bin, "-xJf", archive, "-C", dest], check=True)
             return
     elif archive.endswith(".zip"):
-        # 7-Zip is 5-10× faster than Python's zipfile on Windows
+        # Windows 10+ ships bsdtar which supports zip and is faster than
+        # spawning 7-Zip (no subprocess startup overhead, streams directly).
+        tar_bin = shutil.which("tar")
+        if tar_bin:
+            r = subprocess.run(
+                [tar_bin, "-xf", archive, "-C", dest],
+                capture_output=True,
+            )
+            if r.returncode == 0:
+                return
+            # bsdtar failed (shouldn't happen on modern Windows) – fall through
+
+        # 7-Zip: suppress all diagnostic output so it doesn't pollute the log
         seven_z = shutil.which("7z") or r"C:\Program Files\7-Zip\7z.exe"
         if os.path.isfile(str(seven_z)):
             subprocess.run(
-                [str(seven_z), "x", archive, f"-o{dest}", "-y", "-bd"],
+                [str(seven_z), "x", archive, f"-o{dest}", "-y", "-bso0", "-bse0", "-bsp0"],
                 check=True,
             )
             return
+
         # PowerShell fallback
         ps = shutil.which("pwsh") or shutil.which("powershell")
         if ps:
@@ -307,9 +331,8 @@ def main() -> None:
     marker = _marker_content(version, url)
 
     # Toolchain cache hit: ~/.zig was restored by actions/cache; skip download.
-    if _read_marker(install_dir) == marker and find_zig_binary(install_dir):
-        zig_bin = find_zig_binary(install_dir)
-        assert zig_bin
+    zig_bin = find_zig_binary(install_dir) if _read_marker(install_dir) == marker else None
+    if zig_bin:
         add_to_path(os.path.dirname(zig_bin))
         log(f"toolchain already installed ({zig_version_line(zig_bin)}), skipping download")
         return
