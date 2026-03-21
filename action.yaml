@@ -7,31 +7,33 @@ branding:
   icon: zap
 inputs:
   version:
-    description: The version to install, either a specific, master (from Git development branch) or default to the latest stable.
+    description: The version to install — a specific semver, master (nightly), or latest (default stable).
     default: latest
   cache:
     description: Enable caching of the Zig toolchain (~/.zig) and build artifacts.
     default: "false"
   cache-toolchain:
-    description: When cache is enabled, restore and save the Zig install under ~/.zig (keyed by OS, runner arch, and resolved version).
+    description: When cache is enabled, save and restore the Zig install under ~/.zig separately from build artifacts.
     default: "true"
   cache-dependency-path:
-    description: Dependency files affecting the build cache (glob). Does not affect the toolchain cache.
+    description: Files whose content affects the build cache key (glob). Does not affect the toolchain cache key.
     default: |
       build.zig
       build.zig.zon
   cache-path:
-    description: Paths to include in the build cache, separated by newlines.
+    description: Paths to include in the build artifact cache, separated by newlines.
     default: |
       **/.zig-cache
       **/zig-out
   target:
-    description: Zig target to improve build cache correctness.
+    description: Zig cross-compilation target (improves build cache correctness).
 
 runs:
   using: composite
   steps:
-    - name: Toolchain cache key
+    # Resolve the version and compute the toolchain cache key segment in one
+    # Python invocation so the install step never has to re-fetch the index.
+    - name: Resolve version & toolchain cache key
       id: toolchain-key
       if: inputs.cache == 'true' && inputs.cache-toolchain == 'true'
       shell: bash
@@ -40,20 +42,21 @@ runs:
         SCRIPT="${{ github.action_path }}/scripts/installer.py"
         VERSION="${{ inputs.version }}"
         if command -v python3 >/dev/null 2>&1; then
-          SEGMENT="$(python3 "$SCRIPT" --print-toolchain-cache-key --version "$VERSION")"
+          OUTPUT="$(python3 "$SCRIPT" --print-toolchain-cache-key --version "$VERSION" 2>/dev/null)"
         elif command -v python >/dev/null 2>&1; then
-          SEGMENT="$(python "$SCRIPT" --print-toolchain-cache-key --version "$VERSION")"
-        elif command -v py >/dev/null 2>&1; then
-          SEGMENT="$(py -3 "$SCRIPT" --print-toolchain-cache-key --version "$VERSION")"
+          OUTPUT="$(python  "$SCRIPT" --print-toolchain-cache-key --version "$VERSION" 2>/dev/null)"
+        elif command -v py   >/dev/null 2>&1; then
+          OUTPUT="$(py -3   "$SCRIPT" --print-toolchain-cache-key --version "$VERSION" 2>/dev/null)"
         else
-          echo "Python runtime not found on PATH" >&2
-          exit 1
+          echo "Python runtime not found on PATH" >&2; exit 1
         fi
-        if [ -z "$SEGMENT" ]; then
-          echo "Failed to compute toolchain cache key (empty segment)" >&2
-          exit 1
+        SEGMENT="$(printf '%s\n' "$OUTPUT" | head -n1)"
+        RESOLVED="$(printf '%s\n' "$OUTPUT" | tail -n1)"
+        if [ -z "$SEGMENT" ] || [ -z "$RESOLVED" ]; then
+          echo "Failed to compute toolchain cache key" >&2; exit 1
         fi
-        echo "segment=$SEGMENT" >> "$GITHUB_OUTPUT"
+        echo "segment=$SEGMENT"          >> "$GITHUB_OUTPUT"
+        echo "resolved-version=$RESOLVED" >> "$GITHUB_OUTPUT"
 
     - name: Restore Zig toolchain
       if: inputs.cache == 'true' && inputs.cache-toolchain == 'true'
@@ -67,16 +70,17 @@ runs:
       run: |
         set -euo pipefail
         SCRIPT="${{ github.action_path }}/scripts/installer.py"
-        VERSION="${{ inputs.version }}"
+        # Use the version already resolved above (avoids a second index fetch);
+        # falls back to the raw input when the cache steps were skipped.
+        VERSION="${{ steps.toolchain-key.outputs.resolved-version || inputs.version }}"
         if command -v python3 >/dev/null 2>&1; then
           python3 "$SCRIPT" --version "$VERSION"
         elif command -v python >/dev/null 2>&1; then
-          python "$SCRIPT" --version "$VERSION"
-        elif command -v py >/dev/null 2>&1; then
-          py -3 "$SCRIPT" --version "$VERSION"
+          python  "$SCRIPT" --version "$VERSION"
+        elif command -v py   >/dev/null 2>&1; then
+          py -3   "$SCRIPT" --version "$VERSION"
         else
-          echo "Python runtime not found on PATH" >&2
-          exit 1
+          echo "Python runtime not found on PATH" >&2; exit 1
         fi
 
     - name: Compute build cache key
@@ -85,12 +89,9 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-
         TARGET="${{ inputs.target }}"
         [ -z "$TARGET" ] && TARGET="default"
-
         KEY="zig-build-${{ runner.os }}-${{ inputs.version }}-${TARGET}-${{ hashFiles(inputs.cache-dependency-path) }}"
-
         echo "key=$KEY" >> "$GITHUB_OUTPUT"
 
     - name: Restore build cache
