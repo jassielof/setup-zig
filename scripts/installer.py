@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
 
 import argparse
+import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.request
 import zipfile
+from typing import Optional
 
 ZIG_INDEX = "https://ziglang.org/download/index.json"
+TOOLCHAIN_MARKER = ".setup-zig-toolchain-marker"
+LOG_PREFIX = "[setup-zig]"
+
+
+def log(msg: str) -> None:
+    print(f"{LOG_PREFIX} {msg}", file=sys.stderr)
 
 
 def detect_platform():
@@ -65,9 +75,64 @@ def get_download_url(index, version, arch, os_name):
         return index[version][key]["tarball"]
 
 
-def download(url, path):
-    with urllib.request.urlopen(url) as resp, open(path, "wb") as f:
-        shutil.copyfileobj(resp, f)
+def toolchain_marker(version_resolved: str, download_url: str) -> str:
+    return f"{version_resolved}\n{download_url}\n"
+
+
+def toolchain_cache_key_segment(version_resolved: str, download_url: str) -> str:
+    if version_resolved == "master":
+        digest = hashlib.sha256(download_url.encode()).hexdigest()[:16]
+        return f"master-{digest}"
+    safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", version_resolved).strip("-")
+    return safe or "unknown"
+
+
+def read_marker(install_dir: str) -> Optional[str]:
+    path = os.path.join(install_dir, TOOLCHAIN_MARKER)
+    if not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def write_marker(install_dir: str, content: str) -> None:
+    path = os.path.join(install_dir, TOOLCHAIN_MARKER)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def should_skip_install(install_dir: str, marker: str) -> bool:
+    existing = read_marker(install_dir)
+    if existing is None or existing != marker:
+        return False
+    return find_zig_binary(install_dir) is not None
+
+
+def download(url: str, path: str, chunk: int = 1 << 20) -> None:
+    with urllib.request.urlopen(url) as resp:
+        total = resp.headers.get("Content-Length")
+        total_n = int(total) if total and total.isdigit() else None
+        read_n = 0
+        next_pct_report = 0
+        next_mb_report = 5
+        with open(path, "wb") as f:
+            while True:
+                buf = resp.read(chunk)
+                if not buf:
+                    break
+                f.write(buf)
+                read_n += len(buf)
+                if total_n:
+                    pct = int(100 * read_n / total_n)
+                    if pct >= next_pct_report:
+                        log(
+                            f"download {pct}% "
+                            f"({read_n // (1 << 20)} MiB / {max(1, total_n // (1 << 20))} MiB)"
+                        )
+                        next_pct_report = min(100, pct + 10)
+                elif read_n >= next_mb_report * (1 << 20):
+                    log(f"download {read_n // (1 << 20)} MiB…")
+                    next_mb_report += 5
 
 
 def extract(archive, dest):
@@ -78,7 +143,6 @@ def extract(archive, dest):
         with tarfile.open(archive) as t:
             abs_dest = os.path.abspath(dest)
 
-            # Guard against path traversal in tar archives.
             for member in t.getmembers():
                 member_path = os.path.abspath(os.path.join(dest, member.name))
                 if os.path.commonpath([abs_dest, member_path]) != abs_dest:
@@ -116,10 +180,10 @@ def install(archive_dir, install_dir):
 def add_to_path(path):
     github_path = os.environ.get("GITHUB_PATH")
     if github_path:
-        with open(github_path, "a") as f:
+        with open(github_path, "a", encoding="utf-8") as f:
             f.write(path + "\n")
     else:
-        print(f"Add to PATH manually: {path}")
+        log(f"add to PATH manually: {path}")
 
 
 def find_zig_binary(root):
@@ -130,18 +194,48 @@ def find_zig_binary(root):
     return None
 
 
+def zig_version_line(zig_bin: str) -> str:
+    out = subprocess.run(
+        [zig_bin, "version"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return out.stdout.strip().splitlines()[0]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--version", default="latest")
+    parser.add_argument(
+        "--print-toolchain-cache-key",
+        action="store_true",
+        help="Print only the toolchain cache key segment (stdout, no other output).",
+    )
     args = parser.parse_args()
 
     os_name, arch = detect_platform()
-
     index = fetch_index()
     version = resolve_version(index, args.version)
     url = get_download_url(index, version, arch, os_name)
+    marker = toolchain_marker(version, url)
+    key_seg = toolchain_cache_key_segment(version, url)
+
+    if args.print_toolchain_cache_key:
+        print(key_seg, end="")
+        return
 
     install_dir = os.path.join(os.path.expanduser("~"), ".zig")
+
+    if should_skip_install(install_dir, marker):
+        zig_bin = find_zig_binary(install_dir)
+        if not zig_bin:
+            raise RuntimeError("Zig binary missing despite toolchain marker")
+        zig_dir = os.path.dirname(zig_bin)
+        add_to_path(zig_dir)
+        ver_line = zig_version_line(zig_bin)
+        log(f"toolchain already installed ({ver_line}), skipping download")
+        return
 
     with tempfile.TemporaryDirectory() as tmp:
         archive_path = os.path.join(
@@ -150,27 +244,29 @@ def main():
         extract_dir = os.path.join(tmp, "extract")
         os.mkdir(extract_dir)
 
-        print(f"Downloading Zig {version}...")
+        log(f"installing Zig {version} for {arch}-{os_name}")
+        log(f"fetching {url}")
         download(url, archive_path)
 
-        print("Extracting...")
+        log("extracting archive…")
         extract(archive_path, extract_dir)
 
         extracted = find_extracted_dir(extract_dir)
 
-        print(f"Installing to {install_dir}...")
+        log(f"installing into {install_dir}")
         install(extracted, install_dir)
 
     zig_bin = find_zig_binary(install_dir)
     if not zig_bin:
         raise RuntimeError("Zig binary not found after installation")
 
-    zig_dir = os.path.dirname(zig_bin)
+    write_marker(install_dir, marker)
 
+    zig_dir = os.path.dirname(zig_bin)
     add_to_path(zig_dir)
 
-    print("Zig installed:")
-    subprocess.run([zig_bin, "version"], check=True)
+    ver_line = zig_version_line(zig_bin)
+    log(f"ready: {ver_line}")
 
 
 if __name__ == "__main__":
