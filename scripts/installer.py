@@ -13,7 +13,6 @@ import tarfile
 import tempfile
 import urllib.request
 import zipfile
-from typing import Optional
 
 ZIG_INDEX = "https://ziglang.org/download/index.json"
 TOOLCHAIN_MARKER = ".setup-zig-toolchain-marker"
@@ -87,7 +86,7 @@ def toolchain_cache_key_segment(version_resolved: str, download_url: str) -> str
     return safe or "unknown"
 
 
-def read_marker(install_dir: str) -> Optional[str]:
+def read_marker(install_dir: str) -> str | None:
     path = os.path.join(install_dir, TOOLCHAIN_MARKER)
     if not os.path.isfile(path):
         return None
