@@ -72,41 +72,49 @@ jobs:
             project/zig-out/
 
   test-cache:
-    name: Test Cache Behavior
-    runs-on: ubuntu-latest
+    name: Test Cache (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Zig (with cache)
+      - name: Setup Zig (first run, populate cache)
         uses: ./
         with:
           version: latest
           cache: true
 
       - name: Create project
+        shell: bash
         run: |
           mkdir -p project
           cd project
           zig init
 
-      - name: First build (populate cache)
+      - name: First build (populate build cache)
+        shell: bash
         run: |
           cd project
           zig build --summary all
 
-      - name: Second run (restore cache)
+      - name: Setup Zig (second run, should restore from cache)
         uses: ./
         with:
           version: latest
           cache: true
 
-      - name: Second build (should be cached)
+      - name: Second build (should be fully cached)
+        shell: bash
         run: |
           cd project
           zig build --summary all
 
       - name: Verify output
-        run: |
-          ./project/zig-out/bin/project
+        shell: bash
+        run: ./project/zig-out/bin/project

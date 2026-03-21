@@ -62,7 +62,7 @@ runs:
       if: inputs.cache == 'true' && inputs.cache-toolchain == 'true'
       uses: actions/cache@v5
       with:
-        path: ${{ runner.os == 'Windows' && format('{0}/.zig', env.USERPROFILE) || format('{0}/.zig', env.HOME) }}
+        path: ~/.zig
         key: zig-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain-key.outputs.segment }}
 
     - name: Install Zig
