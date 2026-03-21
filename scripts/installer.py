@@ -53,7 +53,7 @@ def is_stable_semver(v: str) -> bool:
 
 def build_stable_url(version: str, arch: str, os_name: str) -> str:
     ext = "zip" if os_name == "windows" else "tar.xz"
-    return f"https://ziglang.org/download/{version}/zig-{os_name}-{arch}-{version}.{ext}"
+    return f"https://ziglang.org/download/{version}/zig-{arch}-{os_name}-{version}.{ext}"
 
 
 def resolve_version_and_url(version_input: str, arch: str, os_name: str) -> Tuple[str, str]:
