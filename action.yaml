@@ -7,16 +7,19 @@ branding:
   icon: zap
 inputs:
   version:
-    description: The version to install — a specific semver, master (nightly), or latest (default stable).
+    description: The version to install — a specific semver, master (nightly), or
+      latest (default stable).
     default: latest
   cache:
     description: Enable caching of the Zig toolchain (~/.zig) and build artifacts.
     default: "true"
   cache-toolchain:
-    description: When cache is enabled, save and restore the Zig install under ~/.zig separately from build artifacts.
+    description: When cache is enabled, save and restore the Zig install under
+      ~/.zig separately from build artifacts.
     default: "true"
   cache-dependency-path:
-    description: Files whose content affects the build cache key (glob). Does not affect the toolchain cache key.
+    description: Files whose content affects the build cache key (glob). Does not
+      affect the toolchain cache key.
     default: |
       build.zig
       build.zig.zon
@@ -24,7 +27,6 @@ inputs:
     description: Paths to include in the build artifact cache, separated by newlines.
     default: |
       **/.zig-cache
-      **/zig-out
   target:
     description: Zig cross-compilation target (improves build cache correctness).
 
@@ -63,7 +65,8 @@ runs:
       uses: actions/cache@v5
       with:
         path: ~/.zig
-        key: zig-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain-key.outputs.segment }}
+        key: zig-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+          steps.toolchain-key.outputs.segment }}
 
     - name: Install Zig
       shell: bash
@@ -89,14 +92,40 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+
         TARGET="${{ inputs.target }}"
         [ -z "$TARGET" ] && TARGET="default"
-        KEY="zig-build-${{ runner.os }}-${{ inputs.version }}-${TARGET}-${{ hashFiles(inputs.cache-dependency-path) }}"
+
+        ZIG_VERSION="$(zig version)"
+
+        KEY="zig-build-${{ runner.os }}-${{ runner.arch }}-${ZIG_VERSION}-${TARGET}-${{ hashFiles(inputs.cache-dependency-path) }}"
         echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+    - name: Resolve Zig cache dirs
+      id: zig-cache
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        GLOBAL_CACHE_DIR="$(zig env | python3 -c 'import json,sys; print(json.load(sys.stdin)["global_cache_dir"])')"
+
+        echo "global-cache-dir=$GLOBAL_CACHE_DIR" >> "$GITHUB_OUTPUT"
+        echo "ZIG_GLOBAL_CACHE_DIR=$GLOBAL_CACHE_DIR" >> "$GITHUB_ENV"
 
     - name: Restore build cache
       if: inputs.cache == 'true'
       uses: actions/cache@v5
       with:
-        path: ${{ inputs.cache-path }}
+        path: |
+          ${{ steps.zig-cache.outputs.global-cache-dir }}
+          ${{ inputs.cache-path }}
         key: ${{ steps.cache-key.outputs.key }}
+
+    - name: Prepare Zig cache dirs
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        mkdir -p "${{ steps.zig-cache.outputs.global-cache-dir }}/tmp"
+        mkdir -p "${{ steps.zig-cache.outputs.global-cache-dir }}/p"
+        mkdir -p .zig-cache
