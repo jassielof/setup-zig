@@ -65,9 +65,8 @@ runs:
       uses: actions/cache@v5
       with:
         path: ~/.zig
-        key: zig-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
-          steps.toolchain-key.outputs.segment }}
-
+        key: |
+          zig-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain-key.outputs. segment }}
     - name: Install Zig
       shell: bash
       run: |
@@ -107,7 +106,9 @@ runs:
       run: |
         set -euo pipefail
 
-        GLOBAL_CACHE_DIR="$(zig env | python3 -c 'import json,sys; print(json.load(sys.stdin)["global_cache_dir"])')"
+        GLOBAL_CACHE_DIR="${ZIG_GLOBAL_CACHE_DIR:-${RUNNER_TEMP}/setup-zig-global-cache}"
+
+        mkdir -p "$GLOBAL_CACHE_DIR"
 
         echo "global-cache-dir=$GLOBAL_CACHE_DIR" >> "$GITHUB_OUTPUT"
         echo "ZIG_GLOBAL_CACHE_DIR=$GLOBAL_CACHE_DIR" >> "$GITHUB_ENV"
