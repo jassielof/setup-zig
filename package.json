@@ -20,8 +20,12 @@
   },
   "type": "module",
   "dependencies": {
+    "@actions/cache": "^6.1.0",
     "@actions/core": "^3.0.1",
-    "@jassielof/zon": "file:./modules/zon-ts"
+    "@actions/exec": "^3.0.0",
+    "@actions/github": "^9.1.1",
+    "@actions/tool-cache": "^4.0.0",
+    "@jassielof/zon": "file:./modules/zon-ts/dist/jassielof-zon-0.1.0.tgz"
   },
   "devDependencies": {
     "@vercel/ncc": "^0.44.0"
