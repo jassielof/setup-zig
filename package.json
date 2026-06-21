@@ -1,0 +1,29 @@
+{
+  "name": "setup-zig",
+  "version": "1.0.0",
+  "description": "Setup Zig development environment",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prebuild": "",
+    "build": ""
+  },
+  "keywords": [],
+  "author": "Jassiel Ovando",
+  "license": "MPL-2.0",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^11.8.0",
+      "onFail": "download"
+    }
+  },
+  "type": "module",
+  "dependencies": {
+    "@actions/core": "^3.0.1",
+    "@jassielof/zon": "file:./modules/zon-ts"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.44.0"
+  }
+}
