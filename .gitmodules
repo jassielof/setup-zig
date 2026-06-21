@@ -1,0 +1,3 @@
+[submodule "modules/zon-ts"]
+	path = modules/zon-ts
+	url = https://github.com/jassielof/zon-ts.git
