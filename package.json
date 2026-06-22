@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "description": "Setup Zig development environment",
   "main": "index.js",
-  "scripts": {},
+  "scripts": {
+    "build": "deno task --cwd modules/zon-ts pack && ncc build src/index.js -o dist && ncc build src/post.js -o dist/post"
+  },
   "keywords": [],
   "author": "Jassiel Ovando",
   "license": "MPL-2.0",
@@ -20,8 +22,10 @@
     "@actions/core": "^3.0.1",
     "@actions/exec": "^3.0.0",
     "@actions/github": "^9.1.1",
+    "@actions/glob": "^0.4.0",
     "@actions/tool-cache": "^4.0.0",
-    "@jassielof/zon": "link:modules\\zon-ts\\node"
+    "@jassielof/zon": "link:modules\\zon-ts\\node",
+    "@std/semver": "jsr:^1.0.8"
   },
   "devDependencies": {
     "@vercel/ncc": "^0.44.0"
