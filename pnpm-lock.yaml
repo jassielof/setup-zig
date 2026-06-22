@@ -223,8 +223,33 @@ importers:
         specifier: ^4.0.0
         version: 4.0.0
       '@jassielof/zon':
-        specifier: file:./modules/zon-ts/dist/jassielof-zon-0.1.0.tgz
-        version: file:modules/zon-ts/dist/jassielof-zon-0.1.0.tgz
+        specifier: link:modules\zon-ts\node
+        version: link:modules/zon-ts/node
+    devDependencies:
+      '@vercel/ncc':
+        specifier: ^0.44.0
+        version: 0.44.0
+
+  C:/Users/Jassiel/Dev/github/jassielof/setup-zig:
+    dependencies:
+      '@actions/cache':
+        specifier: ^6.1.0
+        version: 6.1.0
+      '@actions/core':
+        specifier: ^3.0.1
+        version: 3.0.1
+      '@actions/exec':
+        specifier: ^3.0.0
+        version: 3.0.0
+      '@actions/github':
+        specifier: ^9.1.1
+        version: 9.1.1
+      '@actions/tool-cache':
+        specifier: ^4.0.0
+        version: 4.0.0
+      zon-ts:
+        specifier: link:modules\zon-ts
+        version: link:modules/zon-ts
     devDependencies:
       '@vercel/ncc':
         specifier: ^0.44.0
@@ -313,10 +338,6 @@ packages:
   '@azure/storage-common@12.4.0':
     resolution: {integrity: sha512-kNhJKMxQb374KOVt63CZnGIpDcrKNzJeyANLJymxE9mCJSdRGzb+Iv9oSIiCj6tNMLypr530b9ObOiA/5OvwOg==}
     engines: {node: '>=20.0.0'}
-
-  '@jassielof/zon@file:modules/zon-ts/dist/jassielof-zon-0.1.0.tgz':
-    resolution: {integrity: sha512-zJEknlGI1VYQo8aQ8bfhJGuitZx4KT7SBc6/5AytHoD9+nHcSisJEI9ePabMnivYSi6GpAS2NJfi+M0fZ+0b9Q==, tarball: file:modules/zon-ts/dist/jassielof-zon-0.1.0.tgz}
-    version: 0.1.0
 
   '@nodable/entities@2.2.0':
     resolution: {integrity: sha512-9uGyhaQavEUMC8AIddIjau4NsnsXhou+j5sBAGojCM1oxmQpVKTWR/9JxABD6UAv12vpIms55fPZKFQEhG6uBg==}
@@ -642,8 +663,6 @@ snapshots:
     transitivePeerDependencies:
       - '@azure/core-client'
       - supports-color
-
-  '@jassielof/zon@file:modules/zon-ts/dist/jassielof-zon-0.1.0.tgz': {}
 
   '@nodable/entities@2.2.0': {}
 

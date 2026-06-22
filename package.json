@@ -3,11 +3,7 @@
   "version": "1.0.0",
   "description": "Setup Zig development environment",
   "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "prebuild": "",
-    "build": ""
-  },
+  "scripts": {},
   "keywords": [],
   "author": "Jassiel Ovando",
   "license": "MPL-2.0",
@@ -25,7 +21,7 @@
     "@actions/exec": "^3.0.0",
     "@actions/github": "^9.1.1",
     "@actions/tool-cache": "^4.0.0",
-    "@jassielof/zon": "file:./modules/zon-ts/dist/jassielof-zon-0.1.0.tgz"
+    "@jassielof/zon": "link:modules\\zon-ts\\node"
   },
   "devDependencies": {
     "@vercel/ncc": "^0.44.0"
