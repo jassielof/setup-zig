@@ -23,12 +23,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Setup PNPM
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
-
       - name: Setup Zig (${{ matrix.version }})
         uses: ./
         with:
