@@ -1,6 +1,3 @@
 [submodule "modules/zon-ts"]
 	path = modules/zon-ts
 	url = https://github.com/jassielof/zon-ts.git
-[submodule "references/mlugg"]
-	path = references/mlugg
-	url = https://codeberg.org/mlugg/setup-zig
