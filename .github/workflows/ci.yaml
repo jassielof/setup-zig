@@ -40,6 +40,14 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         version: [latest, master, 0.15.2]
+        exclude:
+          - os: macos-latest
+            version: 0.15.2
+        include:
+          # Zig 0.15.2 cannot link a build runner on the macOS 26 image currently
+          # selected by macos-latest. Keep the legacy compatibility check on 15.
+          - os: macos-15
+            version: 0.15.2
     steps:
       - uses: actions/checkout@v7
       - name: Set up Zig

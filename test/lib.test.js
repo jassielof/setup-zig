@@ -84,12 +84,13 @@ test("cache keys sanitize user-controlled text", () => {
     platform: "linux",
     arch: "x86_64",
     version: "0.15.2",
+    target: "x86_64-linux.6.11...6.11-gnu.2.40",
     userKey: "Debug / native",
     dependencyHash: "abc",
   });
   assert.equal(
     result.key,
-    "setup-zig-build-v3-linux-x86_64-0.15.2-Debug-native-abc",
+    "setup-zig-build-v4-linux-x86_64-0.15.2-x86_64-linux.6.11...6.11-gnu.2.40-Debug-native-abc",
   );
   assert.deepEqual(lines("a\r\n\n b \n"), ["a", "b"]);
 });

@@ -107,11 +107,13 @@ export function toolchainCacheKey(platform, arch, version) {
 }
 
 export function buildCacheKey(
-  { platform, arch, version, userKey, dependencyHash },
+  { platform, arch, version, target, userKey, dependencyHash },
 ) {
-  const prefix = `setup-zig-build-v3-${safeKeySegment(platform)}-${
+  const prefix = `setup-zig-build-v4-${safeKeySegment(platform)}-${
     safeKeySegment(arch)
-  }-${safeKeySegment(version)}-${safeKeySegment(userKey)}`;
+  }-${safeKeySegment(version)}-${safeKeySegment(target, "unknown-target")}-${
+    safeKeySegment(userKey)
+  }`;
   return { key: `${prefix}-${dependencyHash}`, restoreKeys: [`${prefix}-`] };
 }
 

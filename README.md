@@ -61,7 +61,9 @@ There are two independent cache entries:
   Zig version. A hit avoids both downloading and extracting Zig.
 - Build data includes the `global_cache_dir` reported by `zig env`, the project
   local cache, and any `cache-path` entries. Its key also includes the exact Zig
-  version, dependency-file hash, and `cache-key`.
+  version, host target reported by `zig env`, dependency-file hash, and
+  `cache-key`. Including the host target prevents native build objects from
+  being restored across incompatible OS or SDK versions.
 
 The action sets `ZIG_LOCAL_CACHE_DIR` to `.zig-cache` in the workspace unless it
 is already set. It does not cache `zig-out` by default: that directory is build

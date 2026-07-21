@@ -6,7 +6,7 @@ import * as tc from "@actions/tool-cache";
 import * as cache from "@actions/cache";
 import * as exec from "@actions/exec";
 import * as glob from "@actions/glob";
-import { parse } from "@jassielof/zon";
+import { parse } from "../modules/zon-ts/node/esm/mod.js";
 import { parseKey, parseSignature, verifySignature } from "./minisign.js";
 import {
   buildCacheKey,
@@ -368,6 +368,7 @@ async function restoreBuildCache({ platform, arch, version, zigEnvironment }) {
     platform,
     arch,
     version,
+    target: zigEnvironment.target,
     userKey: core.getInput("cache-key"),
     dependencyHash,
   });

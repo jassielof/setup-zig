@@ -23,9 +23,6 @@ importers:
       '@actions/tool-cache':
         specifier: ^4.0.0
         version: 4.0.0
-      '@jassielof/zon':
-        specifier: link:modules\zon-ts\node
-        version: link:modules/zon-ts/node
       semver:
         specifier: ^7.8.5
         version: 7.8.5
