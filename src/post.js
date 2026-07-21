@@ -2,96 +2,85 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import * as core from "@actions/core";
 import * as cache from "@actions/cache";
+import * as glob from "@actions/glob";
 
-async function dirSize(dirPath) {
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function pathSize(root, seen) {
+  let stat;
   try {
-    let total = 0;
-    const entries = await fs.readdir(dirPath, {
-      withFileTypes: true,
-      recursive: true,
-    });
-    for (const ent of entries) {
-      if (ent.isFile()) {
-        try {
-          const stat = await fs.stat(path.join(ent.parentPath, ent.name));
-          total += stat.size;
-        } catch {
-          // ignore stat failures for individual files
-        }
-      }
-    }
-    return total;
+    stat = await fs.lstat(root);
   } catch {
     return 0;
   }
+  const identity = process.platform === "win32"
+    ? path.resolve(root).toLowerCase()
+    : path.resolve(root);
+  if (seen.has(identity)) return 0;
+  seen.add(identity);
+  if (stat.isSymbolicLink()) return 0;
+  if (stat.isFile()) return stat.size;
+  if (!stat.isDirectory()) return 0;
+  let total = 0;
+  for (const entry of await fs.readdir(root)) {
+    total += await pathSize(path.join(root, entry), seen);
+  }
+  return total;
+}
+
+async function cacheSize(patterns) {
+  const globber = await glob.create(patterns.join("\n"), {
+    followSymbolicLinks: false,
+  });
+  const matches = await globber.glob();
+  const seen = new Set();
+  let total = 0;
+  for (const match of matches) total += await pathSize(match, seen);
+  return total;
 }
 
 async function main() {
+  const key = core.getState("build-cache-key");
+  const restoredKey = core.getState("restored-cache-key");
+  const pathsJson = core.getState("build-cache-paths");
+  if (!key || !pathsJson) return;
+  if (restoredKey === key) {
+    core.info(
+      `The exact Zig build cache '${key}' was restored; nothing to save`,
+    );
+    return;
+  }
+
   try {
-    const buildCacheKey = core.getState("build-cache-key");
-    const restoredCacheKey = core.getState("restored-cache-key");
-    const pathsJson = core.getState("build-cache-paths");
-    const globalCacheDir = core.getState("global-cache-dir");
-
-    if (!buildCacheKey || !pathsJson) {
-      core.info(
-        "No build cache configuration found in state. Skipping build cache save.",
-      );
-      return;
-    }
-
     const paths = JSON.parse(pathsJson);
-
-    const sizeLimitMiB =
-      parseInt(core.getInput("cache-size-limit"), 10) || 0;
-    if (sizeLimitMiB > 0 && globalCacheDir) {
-      const sizeLimit = sizeLimitMiB * 1024 * 1024;
-      const size = await dirSize(globalCacheDir);
-      if (size > sizeLimit) {
-        core.info(
-          `Cache directory is ${size} bytes, exceeding limit of ${sizeLimit} bytes; clearing cache`,
+    const rawLimit = core.getInput("cache-size-limit").trim();
+    const limitMiB = rawLimit === "" ? 0 : Number(rawLimit);
+    if (!Number.isFinite(limitMiB) || limitMiB < 0) {
+      core.warning(`Ignoring invalid cache-size-limit '${rawLimit}'`);
+    } else if (limitMiB > 0) {
+      const size = await cacheSize(paths);
+      const limit = limitMiB * 1024 * 1024;
+      if (size > limit) {
+        core.warning(
+          `Skipping Zig build cache save: ${
+            (size / 1024 / 1024).toFixed(1)
+          } MiB exceeds the ${limitMiB} MiB limit`,
         );
-        const entries = await fs.readdir(globalCacheDir);
-        await Promise.all(
-          entries.map((e) =>
-            fs.rm(path.join(globalCacheDir, e), {
-              recursive: true,
-              force: true,
-            })
-          ),
-        );
-      } else {
-        core.info(
-          `Cache directory is ${size} bytes, within limit of ${sizeLimit} bytes`,
-        );
+        return;
       }
+      core.info(`Zig build cache size: ${(size / 1024 / 1024).toFixed(1)} MiB`);
     }
 
-    if (restoredCacheKey === buildCacheKey) {
-      core.info(
-        `Zig build cache hit on exact key '${buildCacheKey}'. Skipping save.`,
-      );
-      return;
-    }
-
-    core.info(`Saving Zig build cache with key: ${buildCacheKey}`);
-    try {
-      await cache.saveCache(paths, buildCacheKey);
-      core.info("Zig build cache saved successfully.");
-    } catch (e) {
-      if (e.name === "ValidationError") {
-        core.info(`Cache save validation error: ${e.message}`);
-      } else if (e.message.includes("already exists")) {
-        core.info(
-          `Cache entry for key '${buildCacheKey}' already exists on the server.`,
-        );
-      } else {
-        core.warning(`Failed to save Zig build cache: ${e.message}`);
-      }
-    }
-  } catch (err) {
-    core.setFailed(err.message);
+    await cache.saveCache(paths, key);
+    core.info(`Saved Zig build cache '${key}'`);
+  } catch (error) {
+    const message = errorMessage(error);
+    if (message.includes("already exists")) {
+      core.info(`Zig build cache '${key}' already exists`);
+    } else core.warning(`Could not save the Zig build cache: ${message}`);
   }
 }
 
-main();
+await main();

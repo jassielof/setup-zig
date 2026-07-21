@@ -1,44 +1,64 @@
-name: Set up Zig Toolchain
-description: Set up Zig in GitHub Actions for use in your workflow.
+name: Set up Zig
+description: Install a verified Zig toolchain and restore Zig's build caches.
 author: Jassiel Ovando
 
 branding:
   color: yellow
   icon: zap
+
 inputs:
   version:
-    description: The version to install — a specific semver, master (nightly), or
-      latest (default stable).
-    default: latest
-  mirror:
-    description: Override of Zig download mirror to use, e.g. "https://pkg.machengine.org/zig".
+    description: >-
+      Zig release, full development version, latest, master, or Mach nominated
+      version. When omitted, reads build.zig.zon's minimum_zig_version and then
+      falls back to the latest stable release.
     required: false
-    default: ""
+  version-file:
+    description: ZON manifest used for automatic version detection.
+    default: build.zig.zon
+  mirror:
+    description: >-
+      HTTPS Zig community mirror override, for example
+      https://pkg.hexops.org/zig. The override is used exclusively.
+    required: false
   cache:
-    description: Enable caching of the Zig toolchain (~/.zig) and build artifacts.
+    description: Restore and save the toolchain, Zig global cache, and project build cache.
     default: "true"
   cache-toolchain:
-    description: When cache is enabled, save and restore the Zig install under
-      ~/.zig separately from build artifacts.
+    description: Cache the extracted Zig toolchain when cache is enabled.
     default: "true"
+  cache-key:
+    description: >-
+      Extra build-cache key segment. Use this for build options that affect
+      cache compatibility, such as a target or optimization mode.
+    required: false
   cache-dependency-path:
-    description: Files whose content affects the build cache key (glob). Does not
-      affect the toolchain cache key.
-    default: |
+    description: Newline-separated glob patterns hashed into the build-cache key.
+    default: |-
       build.zig
       build.zig.zon
   cache-path:
-    description: Additional paths to include in the build artifact cache, separated
-      by newlines.
-    default: ""
+    description: >-
+      Additional newline-separated build-cache paths or glob patterns. Zig's
+      global cache and $ZIG_LOCAL_CACHE_DIR are always included. Add zig-pkg to
+      preserve Zig 0.16's expanded project-local dependency tree.
+    required: false
   cache-size-limit:
-    description: The maximum permitted size of the Zig cache directory, in MiB.
-      0 means no limit.
+    description: Maximum build-cache upload size in MiB. Zero disables the limit.
     default: "2048"
-  target:
-    description: Zig cross-compilation target (improves build cache correctness).
+
+outputs:
+  version:
+    description: Exact installed Zig version.
+  path:
+    description: Directory containing the Zig executable.
+  cache-hit:
+    description: Whether any compatible Zig build cache was restored.
+  toolchain-cache-hit:
+    description: Whether the extracted Zig toolchain was already cached.
 
 runs:
   using: node24
   main: dist/index.js
   post: dist/post/index.js
+  post-if: success()

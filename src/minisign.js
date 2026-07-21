@@ -8,19 +8,22 @@ import crypto from "node:crypto";
 export async function parseKey(keyStr) {
   const keyInfo = Buffer.from(keyStr, "base64");
 
+  if (
+    keyInfo.byteLength !== 42 ||
+    !keyInfo.subarray(0, 2).equals(Buffer.from("Ed"))
+  ) {
+    throw new Error("invalid minisign public key");
+  }
+
   const id = keyInfo.subarray(2, 10);
   const key = keyInfo.subarray(10);
-
-  if (key.byteLength !== 32) {
-    throw new Error("invalid public key given");
-  }
 
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
     key,
     "Ed25519",
     false,
-    ["verify"]
+    ["verify"],
   );
 
   return { id, key: cryptoKey };
@@ -44,16 +47,24 @@ export function parseSignature(sigBuf) {
   // Skip untrusted comment
   const firstNewline = currentBuf.indexOf("\n");
   if (firstNewline === -1) {
-    throw new Error("invalid minisign signature: missing newline after untrusted comment");
+    throw new Error(
+      "invalid minisign signature: missing newline after untrusted comment",
+    );
   }
   currentBuf = currentBuf.subarray(firstNewline + 1);
 
   // Read and skip signature info
   const sigInfoEnd = currentBuf.indexOf("\n");
   if (sigInfoEnd === -1) {
-    throw new Error("invalid minisign signature: missing newline after signature info");
+    throw new Error(
+      "invalid minisign signature: missing newline after signature info",
+    );
   }
-  const sigInfo = Buffer.from(currentBuf.subarray(0, sigInfoEnd).toString(), "base64");
+  const sigInfo = decodeBase64(
+    currentBuf.subarray(0, sigInfoEnd).toString().replace(/\r$/, ""),
+    74,
+    "signature",
+  );
   currentBuf = currentBuf.subarray(sigInfoEnd + 1);
 
   // Extract components of signature info
@@ -70,9 +81,13 @@ export function parseSignature(sigBuf) {
   // Read and skip trusted comment
   const trustedCommentEnd = currentBuf.indexOf("\n");
   if (trustedCommentEnd === -1) {
-    throw new Error("invalid minisign signature: missing newline after trusted comment");
+    throw new Error(
+      "invalid minisign signature: missing newline after trusted comment",
+    );
   }
-  const trustedComment = currentBuf.subarray(0, trustedCommentEnd);
+  const trustedComment = currentBuf.subarray(0, trustedCommentEnd).toString()
+    .replace(/\r$/, "");
+  const trustedCommentBuffer = Buffer.from(trustedComment);
   currentBuf = currentBuf.subarray(trustedCommentEnd + 1);
 
   // Read and skip global signature
@@ -80,8 +95,14 @@ export function parseSignature(sigBuf) {
   if (globalSigEnd === -1) {
     globalSigEnd = currentBuf.length;
   }
-  const globalSig = Buffer.from(currentBuf.subarray(0, globalSigEnd).toString(), "base64");
-  currentBuf = currentBuf.subarray(globalSigEnd === currentBuf.length ? globalSigEnd : globalSigEnd + 1);
+  const globalSig = decodeBase64(
+    currentBuf.subarray(0, globalSigEnd).toString().replace(/\r$/, ""),
+    64,
+    "global signature",
+  );
+  currentBuf = currentBuf.subarray(
+    globalSigEnd === currentBuf.length ? globalSigEnd : globalSigEnd + 1,
+  );
 
   // Validate that all data has been consumed
   if (currentBuf.length !== 0 && currentBuf.toString().trim() !== "") {
@@ -92,9 +113,20 @@ export function parseSignature(sigBuf) {
     algorithm,
     key_id: keyId,
     signature,
-    trusted_comment: trustedComment,
+    trusted_comment: trustedCommentBuffer,
     global_signature: globalSig,
   };
+}
+
+function decodeBase64(value, expectedLength, label) {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) {
+    throw new Error(`invalid minisign signature: malformed ${label}`);
+  }
+  const decoded = Buffer.from(value, "base64");
+  if (decoded.byteLength !== expectedLength) {
+    throw new Error(`invalid minisign signature: wrong ${label} length`);
+  }
+  return decoded;
 }
 
 /**
@@ -120,12 +152,29 @@ export async function verifySignature(pubkey, signature, fileContent) {
     return false; // unsupported algorithm
   }
 
-  if (!await crypto.subtle.verify("Ed25519", pubkey.key, signature.signature, signedContent)) {
+  if (
+    !await crypto.subtle.verify(
+      "Ed25519",
+      pubkey.key,
+      signature.signature,
+      signedContent,
+    )
+  ) {
     return false; // signature verification failure
   }
 
-  const globalSignedContent = Buffer.concat([signature.signature, signature.trusted_comment]);
-  if (!await crypto.subtle.verify("Ed25519", pubkey.key, signature.global_signature, globalSignedContent)) {
+  const globalSignedContent = Buffer.concat([
+    signature.signature,
+    signature.trusted_comment,
+  ]);
+  if (
+    !await crypto.subtle.verify(
+      "Ed25519",
+      pubkey.key,
+      signature.global_signature,
+      globalSignedContent,
+    )
+  ) {
     return false; // signature verification failure
   }
 

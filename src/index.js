@@ -1,43 +1,68 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
-import crypto from "node:crypto";
 import * as core from "@actions/core";
 import * as tc from "@actions/tool-cache";
 import * as cache from "@actions/cache";
 import * as exec from "@actions/exec";
 import * as glob from "@actions/glob";
-import semver from "semver";
 import { parse } from "@jassielof/zon";
 import { parseKey, parseSignature, verifySignature } from "./minisign.js";
+import {
+  buildCacheKey,
+  getTarballFilename,
+  hashDependencyFiles,
+  latestStableVersion,
+  lines,
+  parseMirrorList,
+  safeKeySegment,
+  shuffle,
+  toolchainCacheKey,
+  validateMirrorUrl,
+  validateResolvedVersion,
+} from "./lib.js";
 
 const ZIGLANG_ORG = "https://ziglang.org";
 const VERSIONS_JSON = `${ZIGLANG_ORG}/download/index.json`;
 const MACH_VERSIONS_JSON = "https://pkg.machengine.org/zig/index.json";
-const CANONICAL_DEV = `${ZIGLANG_ORG}/builds`;
-const CANONICAL_RELEASE = `${ZIGLANG_ORG}/download`;
 const MIRRORS_URL = `${ZIGLANG_ORG}/download/community-mirrors.txt`;
 const MINISIGN_KEY = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U";
+const SOURCE_QUERY = "github-jassielof-setup-zig";
+const FETCH_TIMEOUT_MS = 30_000;
+const FALLBACK_MIRRORS = [
+  "https://pkg.hexops.org/zig",
+  "https://zigmirror.hryx.net/zig",
+  "https://zig.linus.dev/zig",
+  "https://zig.squirl.dev",
+  "https://zig.mirror.mschae23.de/zig",
+  "https://ziglang.freetls.fastly.net",
+  "https://zig.tilok.dev",
+  "https://zig-mirror.tsimnet.eu/zig",
+  "https://zig.karearl.com/zig",
+  "https://pkg.earth/zig",
+  "https://fs.liujiacai.net/zigbuilds",
+  "https://zigmirror.com",
+  "https://zig.chainsafe.dev",
+  "https://zig.savalione.com",
+  "https://zig.bcr.ist",
+  "https://zig.vortan.dev/zig",
+];
 
-async function fileExists(p) {
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function fileExists(file) {
   try {
-    await fs.access(p);
+    await fs.access(file);
     return true;
   } catch {
     return false;
   }
 }
 
-function versionLessThan(curVer, minVer) {
-  try {
-    return semver.lt(curVer, minVer);
-  } catch {
-    return false;
-  }
-}
-
 function detectPlatformAndArch() {
-  const platformMap = {
+  const platform = {
     android: "android",
     freebsd: "freebsd",
     sunos: "illumos",
@@ -46,8 +71,8 @@ function detectPlatformAndArch() {
     netbsd: "netbsd",
     openbsd: "openbsd",
     win32: "windows",
-  };
-  const archMap = {
+  }[os.platform()];
+  let arch = {
     arm: "arm",
     arm64: "aarch64",
     loong64: "loongarch64",
@@ -60,462 +85,379 @@ function detectPlatformAndArch() {
     s390x: "s390x",
     ia32: "x86",
     x64: "x86_64",
-  };
-
-  const platform = platformMap[os.platform()];
-  let arch = archMap[os.arch()];
-
+  }[os.arch()];
   if (!platform || !arch) {
-    throw new Error(`Unsupported platform: ${os.platform()} ${os.arch()}`);
+    throw new Error(
+      `Unsupported runner platform: ${os.platform()} ${os.arch()}`,
+    );
   }
-
-  if (arch === "powerpc64" && os.endianness() === "LE") {
-    arch = "powerpc64le";
-  }
-
+  if (arch === "powerpc64" && os.endianness() === "LE") arch = "powerpc64le";
   return { platform, arch };
 }
 
-async function fetchJson(url) {
-  const resp = await fetch(url);
-  if (!resp.ok) {
-    throw new Error(
-      `Failed to fetch JSON from ${url}: ${resp.status} ${resp.statusText}`,
-    );
+async function fetchResponse(url) {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText} from ${url}`);
   }
-  return await resp.json();
+  return response;
+}
+
+async function fetchJson(url) {
+  return await (await fetchResponse(url)).json();
 }
 
 async function resolveVersion(versionInput) {
-  let raw = versionInput;
-  if (!raw) {
+  let requested = versionInput.trim();
+  if (!requested) {
+    const manifestPath = core.getInput("version-file") || "build.zig.zon";
     try {
-      if (await fileExists("build.zig.zon")) {
-        const zonText = await fs.readFile("build.zig.zon", "utf8");
-        const parsed = parse(zonText, { enumLiteral: "string" });
-        const zonVersion =
-          parsed.mach_zig_version ||
-          parsed.minimum_zig_version;
-        if (zonVersion) {
-          raw = String(zonVersion);
-          core.info(`Resolved version '${raw}' from build.zig.zon`);
-        }
+      const manifest = parse(await fs.readFile(manifestPath, "utf8"), {
+        enumLiteral: "string",
+      });
+      requested = String(
+        manifest.mach_zig_version || manifest.minimum_zig_version || "",
+      );
+      if (requested) {
+        core.info(`Using Zig version '${requested}' from ${manifestPath}`);
+      } else {core.info(
+          `${manifestPath} has no minimum_zig_version; using latest stable`,
+        );}
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        core.info(`${manifestPath} was not found; using latest stable`);
+      } else {
+        throw new Error(
+          `Could not parse ${manifestPath} for automatic version detection: ${
+            errorMessage(error)
+          }`,
+        );
       }
-    } catch (e) {
-      core.info(`Could not read or parse build.zig.zon: ${e.message}`);
     }
   }
+  requested ||= "latest";
 
-  if (!raw) {
-    raw = "latest";
-  }
-
-  if (raw === "master" || raw === "dev") {
+  if (requested === "master" || requested === "dev") {
     const index = await fetchJson(VERSIONS_JSON);
     return {
-      version: "master",
-      resolvedVersion: index.master.version,
+      requested: "master",
+      version: validateResolvedVersion(index.master.version),
       index,
     };
   }
-
-  if (raw === "latest") {
+  if (requested === "latest") {
     const index = await fetchJson(VERSIONS_JSON);
-    const versions = Object.keys(index).filter((v) => v !== "master");
-    versions.sort((a, b) => {
-      const aParts = a.split(".").map(Number);
-      const bParts = b.split(".").map(Number);
-      for (let i = 0; i < 3; i++) {
-        if (aParts[i] !== bParts[i]) {
-          return bParts[i] - aParts[i];
-        }
-      }
-      return 0;
-    });
-    const latestVersion = versions[0];
-    return {
-      version: latestVersion,
-      resolvedVersion: latestVersion,
-      index,
-    };
+    const version = latestStableVersion(index);
+    return { requested: version, version, index };
   }
-
-  if (raw.includes("mach")) {
-    const machIndex = await fetchJson(MACH_VERSIONS_JSON);
-    if (!(raw in machIndex)) {
-      throw new Error(`Mach nominated version '${raw}' not found`);
+  if (requested.includes("mach")) {
+    const index = await fetchJson(MACH_VERSIONS_JSON);
+    if (!Object.hasOwn(index, requested)) {
+      throw new Error(`Mach nominated version '${requested}' was not found`);
     }
-    const resolved = machIndex[raw].version;
     return {
-      version: resolved,
-      resolvedVersion: resolved,
+      requested,
+      version: validateResolvedVersion(index[requested].version),
       index: null,
     };
   }
-
-  return { version: raw, resolvedVersion: raw, index: null };
+  return {
+    requested,
+    version: validateResolvedVersion(requested),
+    index: null,
+  };
 }
 
-function getTarballFilename(version, arch, platform) {
-  const ext = platform === "windows" ? "zip" : "tar.xz";
-
-  let displayArch = arch;
-  if (arch === "arm" && versionLessThan(version, "0.15.1")) {
-    displayArch = "armv7a";
-  }
-
-  let name;
-  if (
-    versionLessThan(version, "0.15.0-dev.631+9a3540d61") &&
-    versionLessThan(version, "0.14.1")
-  ) {
-    name = `zig-${platform}-${displayArch}-${version}`;
-  } else {
-    name = `zig-${displayArch}-${platform}-${version}`;
-  }
-  return `${name}.${ext}`;
+function withSource(url) {
+  const parsed = new URL(url);
+  parsed.searchParams.set("source", SOURCE_QUERY);
+  return parsed.href;
 }
 
-async function getMirrors() {
-  const preferredMirror = core.getInput("mirror");
-  if (preferredMirror) {
-    if (
-      preferredMirror.includes("://ziglang.org/") ||
-      preferredMirror.startsWith("ziglang.org/")
-    ) {
-      throw new Error(
-        "'https://ziglang.org' cannot be used as mirror override; for more information see README.md",
+async function downloadFromMirror(mirror, filename) {
+  const archiveUrl = `${mirror}/${filename}`;
+  core.info(`Downloading ${archiveUrl}`);
+  const archivePath = await tc.downloadTool(withSource(archiveUrl));
+  const signature = Buffer.from(
+    await (await fetchResponse(withSource(`${archiveUrl}.minisig`)))
+      .arrayBuffer(),
+  );
+  const archive = await fs.readFile(archivePath);
+  const publicKey = await parseKey(MINISIGN_KEY);
+  const parsedSignature = parseSignature(signature);
+  if (!(await verifySignature(publicKey, parsedSignature, archive))) {
+    throw new Error(`Minisign verification failed for ${archiveUrl}`);
+  }
+  const match = /^timestamp:\d+\s+file:([^\s]+)\s+hashed$/.exec(
+    parsedSignature.trusted_comment.toString(),
+  );
+  if (!match || match[1] !== filename) {
+    throw new Error(
+      `The signed filename did not match '${filename}' for ${archiveUrl}`,
+    );
+  }
+  return archivePath;
+}
+
+async function communityMirrors() {
+  try {
+    const mirrors = parseMirrorList(
+      await (await fetchResponse(MIRRORS_URL)).text(),
+    );
+    if (mirrors.length > 0) return mirrors;
+    throw new Error("the mirror list was empty");
+  } catch (error) {
+    core.warning(
+      `Could not refresh the Zig mirror list; using the bundled fallback list: ${
+        errorMessage(error)
+      }`,
+    );
+    return FALLBACK_MIRRORS;
+  }
+}
+
+async function downloadArchive(version, filename) {
+  const override = core.getInput("mirror").trim();
+  if (override) {
+    return await downloadFromMirror(validateMirrorUrl(override), filename);
+  }
+
+  const errors = [];
+  for (const mirror of shuffle(await communityMirrors())) {
+    try {
+      return await downloadFromMirror(mirror, filename);
+    } catch (error) {
+      errors.push(`${mirror}: ${errorMessage(error)}`);
+      core.info(`Mirror failed (${mirror}): ${errorMessage(error)}`);
+    }
+  }
+  const official = version.includes("-dev")
+    ? `${ZIGLANG_ORG}/builds`
+    : `${ZIGLANG_ORG}/download/${version}`;
+  core.warning(
+    `All ${errors.length} community mirrors failed; trying ziglang.org`,
+  );
+  return await downloadFromMirror(official, filename);
+}
+
+async function findExtractedToolchain(extractRoot, binaryName) {
+  if (await fileExists(path.join(extractRoot, binaryName))) return extractRoot;
+  const entries = await fs.readdir(extractRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      const candidate = path.join(extractRoot, entry.name);
+      if (await fileExists(path.join(candidate, binaryName))) return candidate;
+    }
+  }
+  throw new Error(`The Zig archive did not contain ${binaryName}`);
+}
+
+async function markerMatches(installDir, expected) {
+  try {
+    return await fs.readFile(
+      path.join(installDir, ".setup-zig.json"),
+      "utf8",
+    ) === JSON.stringify(expected);
+  } catch {
+    return false;
+  }
+}
+
+async function installToolchain(
+  { platform, arch, version, filename, useCache },
+) {
+  const binaryName = platform === "windows" ? "zig.exe" : "zig";
+  const tempRoot = process.env.RUNNER_TEMP || os.tmpdir();
+  const installDir = path.join(
+    tempRoot,
+    "setup-zig",
+    safeKeySegment(version),
+    `${arch}-${platform}`,
+  );
+  const marker = { version, platform, arch, filename };
+  const cacheKey = toolchainCacheKey(platform, arch, version);
+  let cacheHit = await markerMatches(installDir, marker);
+
+  if (!cacheHit && useCache) {
+    try {
+      const restored = await cache.restoreCache([installDir], cacheKey);
+      cacheHit = Boolean(restored) && await markerMatches(installDir, marker);
+      if (restored && !cacheHit) {
+        core.warning("Ignoring an invalid toolchain cache entry");
+      }
+    } catch (error) {
+      core.warning(
+        `Could not restore the toolchain cache: ${errorMessage(error)}`,
       );
     }
-    core.info(`Using mirror: ${preferredMirror}`);
-    return [preferredMirror];
   }
 
-  let mirrors = [];
-  try {
-    const mirrorsResponse = await fetch(MIRRORS_URL);
-    if (mirrorsResponse.ok) {
-      mirrors = (await mirrorsResponse.text())
-        .split("\n")
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0 && !l.startsWith("#"));
-    }
-  } catch (e) {
-    core.info(
-      `Failed to fetch mirror list, using default mirrors: ${e.message}`,
+  if (!cacheHit) {
+    await fs.rm(installDir, { recursive: true, force: true });
+    const archivePath = await downloadArchive(version, filename);
+    const extractRoot = await fs.mkdtemp(
+      path.join(tempRoot, "setup-zig-extract-"),
     );
-  }
-
-  if (mirrors.length === 0) {
-    mirrors = [
-      "https://pkg.machengine.org/zig",
-      "https://zigmirror.hryx.net/zig",
-      "https://zig.linus.dev/zig",
-      "https://zig.squirl.dev",
-      "https://zig.florent.dev",
-      "https://zig.mirror.mschae23.de/zig",
-      "https://zigmirror.meox.dev",
-      "https://ziglang.freetls.fastly.net",
-      "https://zig.tilok.dev",
-      "https://zig-mirror.tsimnet.eu/zig",
-      "https://zig.karearl.com/zig",
-      "https://pkg.earth/zig",
-      "https://fs.liujiacai.net/zigbuilds",
-    ];
-  }
-
-  return mirrors
-    .map((m) => [m, Math.random()])
-    .sort((a, b) => a[1] - b[1])
-    .map((a) => a[0]);
-}
-
-async function downloadFromMirror(mirror, tarballFilename) {
-  const url = `${mirror}/${tarballFilename}`;
-  core.info(`Downloading tool cache from ${url}`);
-  const tarballPath = await tc.downloadTool(
-    `${url}?source=github-jassielof-setup-zig`,
-  );
-
-  core.info(`Downloading signature from ${url}.minisig`);
-  const signatureResponse = await fetch(
-    `${url}.minisig?source=github-jassielof-setup-zig`,
-  );
-  if (!signatureResponse.ok) {
-    throw new Error(
-      `Signature download failed: ${signatureResponse.statusText}`,
-    );
-  }
-  const signatureData = Buffer.from(await signatureResponse.arrayBuffer());
-  const tarballData = await fs.readFile(tarballPath);
-
-  const key = await parseKey(MINISIGN_KEY);
-  const signature = parseSignature(signatureData);
-  if (!(await verifySignature(key, signature, tarballData))) {
-    throw new Error(`Signature verification failed for ${url}`);
-  }
-
-  const match = /^timestamp:\d+\s+file:([^\s]+)\s+hashed$/.exec(
-    signature.trusted_comment.toString(),
-  );
-  if (match === null || match[1] !== tarballFilename) {
-    throw new Error(`Filename verification failed for ${url}`);
-  }
-
-  return tarballPath;
-}
-
-async function downloadTarball(resolvedVersion, arch, platform) {
-  const tarballFilename = getTarballFilename(resolvedVersion, arch, platform);
-  const mirrors = await getMirrors();
-
-  for (const mirror of mirrors) {
-    core.info(`Attempting mirror: ${mirror}`);
     try {
-      return await downloadFromMirror(mirror, tarballFilename);
-    } catch (e) {
-      core.info(`Mirror failed with error: ${e.message}`);
+      core.info(`Extracting ${filename}`);
+      if (platform === "windows") await tc.extractZip(archivePath, extractRoot);
+      else await tc.extractTar(archivePath, extractRoot, "xJ");
+      const extracted = await findExtractedToolchain(extractRoot, binaryName);
+      await fs.mkdir(path.dirname(installDir), { recursive: true });
+      await fs.rename(extracted, installDir);
+      await fs.writeFile(
+        path.join(installDir, ".setup-zig.json"),
+        JSON.stringify(marker),
+        "utf8",
+      );
+    } finally {
+      await fs.rm(extractRoot, { recursive: true, force: true });
     }
-  }
-
-  const canonicalBase = resolvedVersion.includes("-dev")
-    ? CANONICAL_DEV
-    : `${CANONICAL_RELEASE}/${resolvedVersion}`;
-  core.info(`Attempting official canonical URL: ${canonicalBase}`);
-  return await downloadFromMirror(canonicalBase, tarballFilename);
-}
-
-function getToolchainCacheKey(platform, arch, resolvedVersion, url) {
-  const runnerOs =
-    { linux: "Linux", macos: "macOS", windows: "Windows" }[platform] ||
-    platform;
-  const runnerArch = { x86_64: "X64", aarch64: "ARM64" }[arch] || arch;
-
-  let segment;
-  if (resolvedVersion.includes("-dev") || resolvedVersion === "master") {
-    const digest = crypto
-      .createHash("sha256")
-      .update(url)
-      .digest("hex")
-      .substring(0, 16);
-    segment = `master-${digest}`;
+    if (useCache) {
+      try {
+        await cache.saveCache([installDir], cacheKey);
+      } catch (error) {
+        const message = errorMessage(error);
+        if (!message.includes("already exists")) {
+          core.warning(`Could not save the toolchain cache: ${message}`);
+        }
+      }
+    }
   } else {
-    segment =
-      resolvedVersion
-        .replace(/[^a-zA-Z0-9._-]+/g, "-")
-        .replace(/^-+|-+$/g, "") || "unknown";
+    core.info(`Restored Zig ${version} from the toolchain cache`);
   }
-  return `zig-toolchain-${runnerOs}-${runnerArch}-${segment}`;
+  return {
+    installDir,
+    binaryPath: path.join(installDir, binaryName),
+    cacheHit,
+  };
 }
 
-async function hashDependencyFiles(globPatterns) {
-  const globber = await glob.create(globPatterns);
-  const files = await globber.glob();
-  files.sort();
-
-  const hash = crypto.createHash("sha256");
-  let hasFiles = false;
-  for (const file of files) {
-    const stat = await fs.stat(file);
-    if (stat.isFile()) {
-      hasFiles = true;
-      const content = await fs.readFile(file);
-      hash.update(content);
-    }
+async function restoreBuildCache({ platform, arch, version, zigEnvironment }) {
+  const workspace = process.env.GITHUB_WORKSPACE || process.cwd();
+  const globalCacheDir = zigEnvironment.global_cache_dir;
+  if (typeof globalCacheDir !== "string" || !globalCacheDir) {
+    throw new Error("zig env did not report global_cache_dir");
   }
-  return hasFiles ? hash.digest("hex") : "default";
+  const localCacheDir = process.env.ZIG_LOCAL_CACHE_DIR ||
+    path.join(workspace, ".zig-cache");
+  core.exportVariable("ZIG_LOCAL_CACHE_DIR", localCacheDir);
+
+  const extraPaths = lines(core.getInput("cache-path"));
+  const cachePaths = [
+    ...new Set([globalCacheDir, localCacheDir, ...extraPaths]),
+  ];
+  for (
+    const cachePath of [
+      globalCacheDir,
+      localCacheDir,
+      ...extraPaths.filter((item) => !/[?*\[]/.test(item)),
+    ]
+  ) {
+    await fs.mkdir(path.resolve(workspace, cachePath), { recursive: true });
+  }
+
+  const dependencyPatterns = [
+    core.getInput("cache-dependency-path"),
+    core.getInput("version-file"),
+  ].filter(Boolean).join("\n");
+  const dependencyHash = await hashDependencyFiles(dependencyPatterns, glob);
+  const { key, restoreKeys } = buildCacheKey({
+    platform,
+    arch,
+    version,
+    userKey: core.getInput("cache-key"),
+    dependencyHash,
+  });
+  let restoredKey = "";
+  try {
+    restoredKey = await cache.restoreCache(cachePaths, key, restoreKeys) || "";
+    core.info(
+      restoredKey
+        ? `Restored Zig build cache '${restoredKey}'`
+        : "Zig build cache miss",
+    );
+  } catch (error) {
+    core.warning(
+      `Could not restore the Zig build cache: ${errorMessage(error)}`,
+    );
+  }
+  core.saveState("build-cache-key", key);
+  core.saveState("build-cache-paths", JSON.stringify(cachePaths));
+  core.saveState("restored-cache-key", restoredKey);
+  return Boolean(restoredKey);
 }
 
 async function main() {
   try {
     const { platform, arch } = detectPlatformAndArch();
-    const versionInput = core.getInput("version");
-    const { version, resolvedVersion, index } =
-      await resolveVersion(versionInput);
-
-    const tarballFilename = getTarballFilename(resolvedVersion, arch, platform);
-    let url;
-    const key = `${arch}-${platform}`;
-    if (index && index[version] && index[version][key]) {
-      url = index[version][key].tarball;
-    } else {
-      const base = resolvedVersion.includes("-dev")
-        ? CANONICAL_DEV
-        : `${CANONICAL_RELEASE}/${resolvedVersion}`;
-      url = `${base}/${tarballFilename}`;
+    const { requested, version, index } = await resolveVersion(
+      core.getInput("version"),
+    );
+    const filename = getTarballFilename(version, arch, platform);
+    const metadataKey = `${arch}-${platform}`;
+    if (index?.[requested]?.[metadataKey]?.tarball) {
+      const indexedFilename = path.basename(
+        new URL(index[requested][metadataKey].tarball).pathname,
+      );
+      if (indexedFilename !== filename) {
+        throw new Error(
+          `Archive name mismatch in Zig's download index: ${indexedFilename}`,
+        );
+      }
     }
 
-    const installDir = path.join(os.homedir(), ".zig");
-    const toolchainCacheKey = getToolchainCacheKey(
+    const useCache = core.getBooleanInput("cache");
+    const useToolchainCache = useCache &&
+      core.getBooleanInput("cache-toolchain");
+    const installed = await installToolchain({
       platform,
       arch,
-      resolvedVersion,
-      url,
-    );
-    const useCache = core.getBooleanInput("cache");
-    const useToolchainCache = core.getBooleanInput("cache-toolchain");
+      version,
+      filename,
+      useCache: useToolchainCache,
+    });
+    core.addPath(installed.installDir);
 
-    let restoredToolchain = false;
-    if (useCache && useToolchainCache) {
-      core.info(
-        `Attempting to restore Zig toolchain with key: ${toolchainCacheKey}`,
-      );
-      const hitKey = await cache.restoreCache([installDir], toolchainCacheKey);
-      if (hitKey) {
-        const markerPath = path.join(installDir, ".setup-zig-toolchain-marker");
-        if (await fileExists(markerPath)) {
-          const markerContent = await fs.readFile(markerPath, "utf8");
-          if (markerContent === `${resolvedVersion}\n${url}\n`) {
-            core.info(`Zig toolchain restored from cache successfully`);
-            restoredToolchain = true;
-          }
-        }
-      }
-    }
-
-    if (!restoredToolchain) {
-      core.info(`Installing Zig ${resolvedVersion} (${arch}-${platform})`);
-      const tarballPath = await downloadTarball(
-        resolvedVersion,
-        arch,
-        platform,
-      );
-
-      core.info(`Extracting Zig archive...`);
-      const tempExtractParent = path.join(os.homedir(), ".zig-temp-extract");
-      if (await fileExists(tempExtractParent)) {
-        await fs.rm(tempExtractParent, { recursive: true, force: true });
-      }
-      await fs.mkdir(tempExtractParent, { recursive: true });
-
-      let extractedDir;
-      if (tarballPath.endsWith(".zip")) {
-        extractedDir = await tc.extractZip(tarballPath, tempExtractParent);
-      } else {
-        extractedDir = await tc.extractTar(
-          tarballPath,
-          tempExtractParent,
-          "xJ",
-        );
-      }
-
-      const entries = await fs.readdir(extractedDir, { withFileTypes: true });
-      const dirs = entries
-        .filter((e) => e.isDirectory())
-        .map((e) => path.join(extractedDir, e.name));
-      let innerDir = extractedDir;
-      if (dirs.length === 1) {
-        innerDir = dirs[0];
-      } else {
-        for (const d of dirs) {
-          if (
-            (await fileExists(path.join(d, "zig"))) ||
-            (await fileExists(path.join(d, "zig.exe")))
-          ) {
-            innerDir = d;
-            break;
-          }
-        }
-      }
-
-      if (await fileExists(installDir)) {
-        await fs.rm(installDir, { recursive: true, force: true });
-      }
-      await fs.mkdir(path.dirname(installDir), { recursive: true });
-      await fs.rename(innerDir, installDir);
-
-      await fs.rm(tempExtractParent, { recursive: true, force: true });
-
-      const markerPath = path.join(installDir, ".setup-zig-toolchain-marker");
-      await fs.writeFile(markerPath, `${resolvedVersion}\n${url}\n`, "utf8");
-
-      if (useCache && useToolchainCache) {
-        core.info(
-          `Saving Zig toolchain to cache with key: ${toolchainCacheKey}`,
-        );
-        try {
-          await cache.saveCache([installDir], toolchainCacheKey);
-        } catch (e) {
-          core.info(`Failed to save toolchain cache: ${e.message}`);
-        }
-      }
-    }
-
-    core.addPath(installDir);
-
-    const binaryName = platform === "windows" ? "zig.exe" : "zig";
-    const zigBinaryPath = path.join(installDir, binaryName);
-    if (!(await fileExists(zigBinaryPath))) {
-      throw new Error(`Zig binary not found at ${zigBinaryPath}`);
-    }
-
-    const { stdout } = await exec.getExecOutput(`"${zigBinaryPath}"`, [
+    const versionResult = await exec.getExecOutput(installed.binaryPath, [
       "version",
-    ]);
-    const zigVersion = stdout.trim();
-    core.info(`Verified Zig installation: version ${zigVersion}`);
-
-    if (useCache) {
-      const runnerOs =
-        { linux: "Linux", macos: "macOS", windows: "Windows" }[platform] ||
-        platform;
-      const runnerArch = { x86_64: "X64", aarch64: "ARM64" }[arch] || arch;
-      const dependencyHash = await hashDependencyFiles(
-        core.getInput("cache-dependency-path"),
+    ], { silent: true });
+    const installedVersion = versionResult.stdout.trim();
+    if (installedVersion !== version) {
+      throw new Error(
+        `Installed Zig reported version '${installedVersion}', expected '${version}'`,
       );
-      const target = core.getInput("target") || "default";
-
-      const buildCacheKey = `zig-build-${runnerOs}-${runnerArch}-${zigVersion}-${target}-${dependencyHash}`;
-      const buildRestoreKeys = [
-        `zig-build-${runnerOs}-${runnerArch}-${zigVersion}-${target}-`,
-      ];
-
-      const globalCacheDir =
-        process.env.ZIG_GLOBAL_CACHE_DIR ||
-        path.join(
-          process.env.RUNNER_TEMP || os.tmpdir(),
-          "setup-zig-global-cache",
-        );
-      core.exportVariable("ZIG_GLOBAL_CACHE_DIR", globalCacheDir);
-
-      const additionalCachePaths = core
-        .getInput("cache-path")
-        .split("\n")
-        .map((p) => p.trim())
-        .filter((p) => p.length > 0);
-
-      const buildCachePaths = [globalCacheDir, ...additionalCachePaths];
-
-      await fs.mkdir(path.join(globalCacheDir, "tmp"), { recursive: true });
-      await fs.mkdir(path.join(globalCacheDir, "p"), { recursive: true });
-      for (const p of additionalCachePaths) {
-        if (!p.includes("*")) {
-          await fs.mkdir(p, { recursive: true });
-        }
-      }
-
-      core.info(
-        `Attempting restore of Zig build cache with key: ${buildCacheKey}`,
-      );
-      const restoredKey = await cache.restoreCache(
-        buildCachePaths,
-        buildCacheKey,
-        buildRestoreKeys,
-      );
-      if (restoredKey) {
-        core.info(`Zig build cache hit (key: ${restoredKey})`);
-      } else {
-        core.info("Zig build cache miss");
-      }
-
-      core.saveState("build-cache-key", buildCacheKey);
-      core.saveState("build-cache-paths", JSON.stringify(buildCachePaths));
-      core.saveState("restored-cache-key", restoredKey || "");
-      core.saveState("global-cache-dir", globalCacheDir);
     }
-  } catch (err) {
-    core.setFailed(err.message);
+    const envResult = await exec.getExecOutput(installed.binaryPath, ["env"], {
+      silent: true,
+    });
+    let zigEnvironment;
+    try {
+      zigEnvironment = JSON.parse(envResult.stdout);
+    } catch {
+      zigEnvironment = parse(envResult.stdout, { enumLiteral: "string" });
+    }
+    core.info(`Installed Zig ${installedVersion} at ${installed.installDir}`);
+
+    let buildCacheHit = false;
+    if (useCache) {
+      buildCacheHit = await restoreBuildCache({
+        platform,
+        arch,
+        version: installedVersion,
+        zigEnvironment,
+      });
+    }
+
+    core.setOutput("version", installedVersion);
+    core.setOutput("path", installed.installDir);
+    core.setOutput("cache-hit", String(buildCacheHit));
+    core.setOutput("toolchain-cache-hit", String(installed.cacheHit));
+  } catch (error) {
+    core.setFailed(errorMessage(error));
   }
 }
 
-main();
+await main();

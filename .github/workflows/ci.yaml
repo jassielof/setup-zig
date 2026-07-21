@@ -9,96 +9,74 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test (${{ matrix.os }}, ${{ matrix.version }})
+  source:
+    name: Source and bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm run check
+      - run: pnpm run build
+      - name: Verify committed bundle
+        run: git diff --exit-code -- dist
+
+  integration:
+    name: ${{ matrix.os }} / Zig ${{ matrix.version }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         version: [latest, master, 0.15.2]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Setup Zig (${{ matrix.version }})
+      - uses: actions/checkout@v7
+      - name: Set up Zig
+        id: zig
         uses: ./
         with:
           version: ${{ matrix.version }}
-      - name: Verify installation
+          cache-key: integration
+      - name: Verify installation and build
         shell: bash
+        env:
+          EXPECTED_VERSION: ${{ steps.zig.outputs.version }}
+          ZIG_PATH: ${{ steps.zig.outputs.path }}
         run: |
-          echo "=== Zig Version ==="
-          zig version
-          echo ""
-
-          echo "=== Zig Path ==="
-          which zig || echo "which not available"
-          where zig || echo "where not available"
-      - name: Build simple program
-        shell: bash
-        run: |
-          mkdir -p test
-          cd test
-
+          test "$(zig version)" = "$EXPECTED_VERSION"
+          test -x "$ZIG_PATH/zig" || test -x "$ZIG_PATH/zig.exe"
+          mkdir smoke
+          cd smoke
           zig init
-          zig build --summary all
+          zig build test --summary all
 
-          echo "=== Running binary ==="
-          zig build run --summary all
-      - name: Build with zig build (cache test)
-        shell: bash
-        run: |
-          mkdir -p project
-          cd project
-
-          zig init
-          zig build --summary all
-
-          echo "=== Built files ==="
-          ls -R
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: zig-build-${{ matrix.os }}-${{ matrix.version }}
-          path: |
-            test/
-            project/zig-out/
-  test-cache:
-    name: Test Cache (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+  manifest-version:
+    name: Version from build.zig.zon
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Setup Zig (first run, populate cache)
+      - uses: actions/checkout@v7
+      - name: Write test manifest
+        shell: bash
+        run: printf '.{ .name = .smoke, .version = "0.0.0", .minimum_zig_version = "0.15.2", .dependencies = .{}, .paths = .{"."}, }\n' > build.zig.zon
+      - id: zig
         uses: ./
         with:
-          version: latest
-          cache: true
-      - name: Create project
+          cache: false
+      - name: Verify manifest selection
         shell: bash
-        run: |
-          mkdir -p project
-          cd project
-          zig init
-      - name: First build (populate build cache)
-        shell: bash
-        run: |
-          cd project
-          zig build --summary all
-      - name: Setup Zig (second run, should restore from cache)
-        uses: ./
-        with:
-          version: latest
-          cache: true
-      - name: Second build (should be fully cached)
-        shell: bash
-        run: |
-          cd project
-          zig build --summary all
-      - name: Verify output
-        shell: bash
-        run: ./project/zig-out/bin/project
+        env:
+          VERSION: ${{ steps.zig.outputs.version }}
+        run: test "$VERSION" = "0.15.2"

@@ -1,27 +1,22 @@
 {
   "name": "setup-zig",
   "version": "1.0.0",
-  "description": "Setup Zig development environment",
+  "description": "Install and cache a verified Zig toolchain in GitHub Actions",
   "main": "index.js",
   "scripts": {
-    "build": "deno task --cwd modules/zon-ts pack && ncc build src/index.js -o dist && ncc build src/post.js -o dist/post"
+    "build": "deno task --cwd modules/zon-ts pack && ncc build src/index.js -o dist --minify && ncc build src/post.js -o dist/post --minify",
+    "test": "node --test test/*.test.js && deno task --cwd modules/zon-ts test",
+    "check": "node --check src/index.js && node --check src/post.js && deno check modules/zon-ts/src/mod.ts && deno lint modules/zon-ts"
   },
   "keywords": [],
   "author": "Jassiel Ovando",
   "license": "MPL-2.0",
-  "devEngines": {
-    "packageManager": {
-      "name": "pnpm",
-      "version": "^11.8.0",
-      "onFail": "download"
-    }
-  },
+  "packageManager": "pnpm@11.8.0",
   "type": "module",
   "dependencies": {
     "@actions/cache": "^6.2.0",
     "@actions/core": "^3.0.1",
     "@actions/exec": "^3.0.0",
-    "@actions/github": "^9.1.1",
     "@actions/glob": "^0.7.0",
     "@actions/tool-cache": "^4.0.0",
     "@jassielof/zon": "link:modules\\zon-ts\\node",
