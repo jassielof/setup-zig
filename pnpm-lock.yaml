@@ -226,11 +226,11 @@ importers:
         specifier: ^4.0.0
         version: 4.0.0
       '@jassielof/zon':
-        specifier: link:modules\zon-ts\node
+        specifier: link:modules/zon-ts/node
         version: link:modules/zon-ts/node
-      '@std/semver':
-        specifier: jsr:^1.0.8
-        version: '@jsr/std__semver@1.0.8'
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
     devDependencies:
       '@vercel/ncc':
         specifier: ^0.44.0
@@ -363,9 +363,6 @@ packages:
   '@fastify/busboy@2.1.1':
     resolution: {integrity: sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA==}
     engines: {node: '>=14'}
-
-  '@jsr/std__semver@1.0.8':
-    resolution: {integrity: sha512-YhkykPU2Majz66e+rQbP0okYc7kKv+U32aguLPCXZZAL+vEVmBA+khHjPHhLBpWR073gzU3WHqGRgB7a/aXCjg==, tarball: https://npm.jsr.io/~/11/@jsr/std__semver/1.0.8.tgz}
 
   '@nodable/entities@2.2.0':
     resolution: {integrity: sha512-9uGyhaQavEUMC8AIddIjau4NsnsXhou+j5sBAGojCM1oxmQpVKTWR/9JxABD6UAv12vpIms55fPZKFQEhG6uBg==}
@@ -718,8 +715,6 @@ snapshots:
       - supports-color
 
   '@fastify/busboy@2.1.1': {}
-
-  '@jsr/std__semver@1.0.8': {}
 
   '@nodable/entities@2.2.0': {}
 

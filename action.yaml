@@ -10,6 +10,10 @@ inputs:
     description: The version to install — a specific semver, master (nightly), or
       latest (default stable).
     default: latest
+  mirror:
+    description: Override of Zig download mirror to use, e.g. "https://pkg.machengine.org/zig".
+    required: false
+    default: ""
   cache:
     description: Enable caching of the Zig toolchain (~/.zig) and build artifacts.
     default: "true"
@@ -24,9 +28,13 @@ inputs:
       build.zig
       build.zig.zon
   cache-path:
-    description: Paths to include in the build artifact cache, separated by newlines.
-    default: |
-      **/.zig-cache
+    description: Additional paths to include in the build artifact cache, separated
+      by newlines.
+    default: ""
+  cache-size-limit:
+    description: The maximum permitted size of the Zig cache directory, in MiB.
+      0 means no limit.
+    default: "2048"
   target:
     description: Zig cross-compilation target (improves build cache correctness).
 

@@ -7,6 +7,7 @@ import * as tc from "@actions/tool-cache";
 import * as cache from "@actions/cache";
 import * as exec from "@actions/exec";
 import * as glob from "@actions/glob";
+import semver from "semver";
 import { parse } from "@jassielof/zon";
 import { parseKey, parseSignature, verifySignature } from "./minisign.js";
 
@@ -27,13 +28,9 @@ async function fileExists(p) {
   }
 }
 
-import * as semver from "@std/semver";
-
 function versionLessThan(curVer, minVer) {
   try {
-    const cur = semver.parse(curVer);
-    const min = semver.parse(minVer);
-    return semver.lessThan(cur, min);
+    return semver.lt(curVer, minVer);
   } catch {
     return false;
   }
@@ -41,24 +38,41 @@ function versionLessThan(curVer, minVer) {
 
 function detectPlatformAndArch() {
   const platformMap = {
-    win32: "windows",
-    darwin: "macos",
-    linux: "linux",
+    android: "android",
     freebsd: "freebsd",
+    sunos: "illumos",
+    linux: "linux",
+    darwin: "macos",
+    netbsd: "netbsd",
+    openbsd: "openbsd",
+    win32: "windows",
   };
   const archMap = {
-    x64: "x86_64",
-    arm64: "aarch64",
-    ia32: "x86",
     arm: "arm",
+    arm64: "aarch64",
+    loong64: "loongarch64",
+    mips: "mips",
+    mipsel: "mipsel",
+    mips64: "mips64",
+    mips64el: "mips64el",
+    ppc64: "powerpc64",
+    riscv64: "riscv64",
+    s390x: "s390x",
+    ia32: "x86",
+    x64: "x86_64",
   };
 
-  let platform = platformMap[os.platform()];
+  const platform = platformMap[os.platform()];
   let arch = archMap[os.arch()];
 
   if (!platform || !arch) {
     throw new Error(`Unsupported platform: ${os.platform()} ${os.arch()}`);
   }
+
+  if (arch === "powerpc64" && os.endianness() === "LE") {
+    arch = "powerpc64le";
+  }
+
   return { platform, arch };
 }
 
@@ -78,20 +92,11 @@ async function resolveVersion(versionInput) {
     try {
       if (await fileExists("build.zig.zon")) {
         const zonText = await fs.readFile("build.zig.zon", "utf8");
-        const parsed = parse(zonText);
-        let zonVersion =
+        const parsed = parse(zonText, { enumLiteral: "string" });
+        const zonVersion =
           parsed.mach_zig_version ||
-          parsed.machZigVersion ||
-          parsed.minimum_zig_version ||
-          parsed.minimumZigVersion;
+          parsed.minimum_zig_version;
         if (zonVersion) {
-          if (
-            zonVersion &&
-            typeof zonVersion === "object" &&
-            "value" in zonVersion
-          ) {
-            zonVersion = zonVersion.value;
-          }
           raw = String(zonVersion);
           core.info(`Resolved version '${raw}' from build.zig.zon`);
         }
@@ -109,7 +114,6 @@ async function resolveVersion(versionInput) {
     const index = await fetchJson(VERSIONS_JSON);
     return {
       version: "master",
-      url: null,
       resolvedVersion: index.master.version,
       index,
     };
@@ -131,7 +135,6 @@ async function resolveVersion(versionInput) {
     const latestVersion = versions[0];
     return {
       version: latestVersion,
-      url: null,
       resolvedVersion: latestVersion,
       index,
     };
@@ -145,25 +148,22 @@ async function resolveVersion(versionInput) {
     const resolved = machIndex[raw].version;
     return {
       version: resolved,
-      url: null,
       resolvedVersion: resolved,
       index: null,
     };
   }
 
-  return { version: raw, url: null, resolvedVersion: raw, index: null };
+  return { version: raw, resolvedVersion: raw, index: null };
 }
 
 function getTarballFilename(version, arch, platform) {
   const ext = platform === "windows" ? "zip" : "tar.xz";
 
-  // Before 0.15.1, Zig used 'armv7a' as the arch name for ARM binaries
   let displayArch = arch;
   if (arch === "arm" && versionLessThan(version, "0.15.1")) {
     displayArch = "armv7a";
   }
 
-  // Before 0.14.1, Zig tarballs were named like 'zig-linux-x86_64-0.14.0' (reversed arch and OS)
   let name;
   if (
     versionLessThan(version, "0.15.0-dev.631+9a3540d61") &&
@@ -224,7 +224,6 @@ async function getMirrors() {
     ];
   }
 
-  // Shuffle mirrors to distribute load
   return mirrors
     .map((m) => [m, Math.random()])
     .sort((a, b) => a[1] - b[1])
@@ -256,7 +255,6 @@ async function downloadFromMirror(mirror, tarballFilename) {
     throw new Error(`Signature verification failed for ${url}`);
   }
 
-  // Parse the trusted comment to validate the tarball name.
   const match = /^timestamp:\d+\s+file:([^\s]+)\s+hashed$/.exec(
     signature.trusted_comment.toString(),
   );
@@ -280,7 +278,6 @@ async function downloadTarball(resolvedVersion, arch, platform) {
     }
   }
 
-  // Canonical fallback
   const canonicalBase = resolvedVersion.includes("-dev")
     ? CANONICAL_DEV
     : `${CANONICAL_RELEASE}/${resolvedVersion}`;
@@ -336,30 +333,16 @@ async function main() {
     const { version, resolvedVersion, index } =
       await resolveVersion(versionInput);
 
-    let url = null;
+    const tarballFilename = getTarballFilename(resolvedVersion, arch, platform);
+    let url;
     const key = `${arch}-${platform}`;
     if (index && index[version] && index[version][key]) {
       url = index[version][key].tarball;
     } else {
-      url = buildCanonicalUrl(resolvedVersion, arch, platform);
-    }
-
-    function buildCanonicalUrl(v, a, p) {
-      const ext = p === "windows" ? "zip" : "tar.xz";
-      let displayA = a;
-      if (a === "arm" && versionLessThan(v, "0.15.1")) {
-        displayA = "armv7a";
-      }
-      let name;
-      if (
-        versionLessThan(v, "0.15.0-dev.631+9a3540d61") &&
-        versionLessThan(v, "0.14.1")
-      ) {
-        name = `zig-${p}-${displayA}-${v}`;
-      } else {
-        name = `zig-${displayA}-${p}-${v}`;
-      }
-      return `${resolvedVersion.includes("-dev") ? CANONICAL_DEV : `${CANONICAL_RELEASE}/${v}`}/${name}.${ext}`;
+      const base = resolvedVersion.includes("-dev")
+        ? CANONICAL_DEV
+        : `${CANONICAL_RELEASE}/${resolvedVersion}`;
+      url = `${base}/${tarballFilename}`;
     }
 
     const installDir = path.join(os.homedir(), ".zig");
@@ -379,7 +362,6 @@ async function main() {
       );
       const hitKey = await cache.restoreCache([installDir], toolchainCacheKey);
       if (hitKey) {
-        // Double check marker file exists and matches
         const markerPath = path.join(installDir, ".setup-zig-toolchain-marker");
         if (await fileExists(markerPath)) {
           const markerContent = await fs.readFile(markerPath, "utf8");
@@ -444,7 +426,6 @@ async function main() {
 
       await fs.rm(tempExtractParent, { recursive: true, force: true });
 
-      // Write marker file
       const markerPath = path.join(installDir, ".setup-zig-toolchain-marker");
       await fs.writeFile(markerPath, `${resolvedVersion}\n${url}\n`, "utf8");
 
@@ -460,24 +441,20 @@ async function main() {
       }
     }
 
-    // Add binary to PATH
     core.addPath(installDir);
 
-    // Resolve binary path and verify execution
     const binaryName = platform === "windows" ? "zig.exe" : "zig";
     const zigBinaryPath = path.join(installDir, binaryName);
     if (!(await fileExists(zigBinaryPath))) {
       throw new Error(`Zig binary not found at ${zigBinaryPath}`);
     }
 
-    // Get verified version
     const { stdout } = await exec.getExecOutput(`"${zigBinaryPath}"`, [
       "version",
     ]);
     const zigVersion = stdout.trim();
     core.info(`Verified Zig installation: version ${zigVersion}`);
 
-    // Set up build cache
     if (useCache) {
       const runnerOs =
         { linux: "Linux", macos: "macOS", windows: "Windows" }[platform] ||
@@ -509,7 +486,6 @@ async function main() {
 
       const buildCachePaths = [globalCacheDir, ...additionalCachePaths];
 
-      // Ensure cache directories exist
       await fs.mkdir(path.join(globalCacheDir, "tmp"), { recursive: true });
       await fs.mkdir(path.join(globalCacheDir, "p"), { recursive: true });
       for (const p of additionalCachePaths) {
@@ -535,6 +511,7 @@ async function main() {
       core.saveState("build-cache-key", buildCacheKey);
       core.saveState("build-cache-paths", JSON.stringify(buildCachePaths));
       core.saveState("restored-cache-key", restoredKey || "");
+      core.saveState("global-cache-dir", globalCacheDir);
     }
   } catch (err) {
     core.setFailed(err.message);

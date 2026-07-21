@@ -12767,7 +12767,7 @@ function buildConnector ({ allowH2, maxCachedSessions, socketPath, timeout, sess
     let socket
     if (protocol === 'https:') {
       if (!tls) {
-        tls = __nccwpck_require__(1692)
+        tls = __nccwpck_require__(9311)
       }
       servername = servername || options.servername || util.getServerName(host) || null
 
@@ -38726,7 +38726,7 @@ module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:stream"
 
 /***/ }),
 
-/***/ 1692:
+/***/ 9311:
 /***/ ((module) => {
 
 module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:tls");
@@ -39154,6 +39154,10 @@ __nccwpck_require__.d(mappers_namespaceObject, {
   UserDelegationKey: () => (UserDelegationKey)
 });
 
+;// CONCATENATED MODULE: external "node:fs/promises"
+const promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs/promises");
+;// CONCATENATED MODULE: external "node:path"
+const external_node_path_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:path");
 ;// CONCATENATED MODULE: external "os"
 const external_os_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("os");
 ;// CONCATENATED MODULE: ./node_modules/.pnpm/@actions+core@3.0.1/node_modules/@actions/core/lib/utils.js
@@ -60199,8 +60203,6 @@ class BufferScheduler {
 //# sourceMappingURL=BufferScheduler.js.map
 ;// CONCATENATED MODULE: external "node:module"
 const external_node_module_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:module");
-;// CONCATENATED MODULE: external "node:path"
-const external_node_path_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:path");
 // EXTERNAL MODULE: external "node:url"
 var external_node_url_ = __nccwpck_require__(3136);
 ;// CONCATENATED MODULE: ./node_modules/.pnpm/@azure+storage-common@12.4.0_@azure+core-client@1.10.2/node_modules/@azure/storage-common/dist/esm/crc64.js
@@ -94688,21 +94690,76 @@ function saveCacheV2(paths_1, key_1, options_1) {
 
 
 
+
+
+async function dirSize(dirPath) {
+  try {
+    let total = 0;
+    const entries = await promises_namespaceObject.readdir(dirPath, {
+      withFileTypes: true,
+      recursive: true,
+    });
+    for (const ent of entries) {
+      if (ent.isFile()) {
+        try {
+          const stat = await promises_namespaceObject.stat(external_node_path_namespaceObject.join(ent.parentPath, ent.name));
+          total += stat.size;
+        } catch {
+          // ignore stat failures for individual files
+        }
+      }
+    }
+    return total;
+  } catch {
+    return 0;
+  }
+}
+
 async function main() {
   try {
     const buildCacheKey = getState("build-cache-key");
     const restoredCacheKey = getState("restored-cache-key");
     const pathsJson = getState("build-cache-paths");
+    const globalCacheDir = getState("global-cache-dir");
 
     if (!buildCacheKey || !pathsJson) {
-      info("No build cache configuration found in state. Skipping build cache save.");
+      info(
+        "No build cache configuration found in state. Skipping build cache save.",
+      );
       return;
     }
 
     const paths = JSON.parse(pathsJson);
 
+    const sizeLimitMiB =
+      parseInt(getInput("cache-size-limit"), 10) || 0;
+    if (sizeLimitMiB > 0 && globalCacheDir) {
+      const sizeLimit = sizeLimitMiB * 1024 * 1024;
+      const size = await dirSize(globalCacheDir);
+      if (size > sizeLimit) {
+        info(
+          `Cache directory is ${size} bytes, exceeding limit of ${sizeLimit} bytes; clearing cache`,
+        );
+        const entries = await promises_namespaceObject.readdir(globalCacheDir);
+        await Promise.all(
+          entries.map((e) =>
+            promises_namespaceObject.rm(external_node_path_namespaceObject.join(globalCacheDir, e), {
+              recursive: true,
+              force: true,
+            })
+          ),
+        );
+      } else {
+        info(
+          `Cache directory is ${size} bytes, within limit of ${sizeLimit} bytes`,
+        );
+      }
+    }
+
     if (restoredCacheKey === buildCacheKey) {
-      info(`Zig build cache hit on exact key '${buildCacheKey}'. Skipping save.`);
+      info(
+        `Zig build cache hit on exact key '${buildCacheKey}'. Skipping save.`,
+      );
       return;
     }
 
@@ -94714,7 +94771,9 @@ async function main() {
       if (e.name === "ValidationError") {
         info(`Cache save validation error: ${e.message}`);
       } else if (e.message.includes("already exists")) {
-        info(`Cache entry for key '${buildCacheKey}' already exists on the server.`);
+        info(
+          `Cache entry for key '${buildCacheKey}' already exists on the server.`,
+        );
       } else {
         warning(`Failed to save Zig build cache: ${e.message}`);
       }

@@ -1,3 +1,4 @@
+
 {
   "name": "setup-zig",
   "version": "1.0.0",
@@ -24,8 +25,8 @@
     "@actions/github": "^9.1.1",
     "@actions/glob": "^0.4.0",
     "@actions/tool-cache": "^4.0.0",
-    "@jassielof/zon": "link:modules\\zon-ts\\node",
-    "@std/semver": "jsr:^1.0.8"
+    "@jassielof/zon": "link:modules/zon-ts/node",
+    "semver": "^7.8.5"
   },
   "devDependencies": {
     "@vercel/ncc": "^0.44.0"

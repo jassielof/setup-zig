@@ -12,22 +12,18 @@ jobs:
   test:
     name: Test (${{ matrix.os }}, ${{ matrix.version }})
     runs-on: ${{ matrix.os }}
-
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         version: [latest, master, 0.15.2]
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
       - name: Setup Zig (${{ matrix.version }})
         uses: ./
         with:
           version: ${{ matrix.version }}
-
       - name: Verify installation
         shell: bash
         run: |
@@ -38,7 +34,6 @@ jobs:
           echo "=== Zig Path ==="
           which zig || echo "which not available"
           where zig || echo "where not available"
-
       - name: Build simple program
         shell: bash
         run: |
@@ -50,7 +45,6 @@ jobs:
 
           echo "=== Running binary ==="
           zig build run --summary all
-
       - name: Build with zig build (cache test)
         shell: bash
         run: |
@@ -62,7 +56,6 @@ jobs:
 
           echo "=== Built files ==="
           ls -R
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -70,51 +63,42 @@ jobs:
           path: |
             test/
             project/zig-out/
-
   test-cache:
     name: Test Cache (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
       - name: Setup Zig (first run, populate cache)
         uses: ./
         with:
           version: latest
           cache: true
-
       - name: Create project
         shell: bash
         run: |
           mkdir -p project
           cd project
           zig init
-
       - name: First build (populate build cache)
         shell: bash
         run: |
           cd project
           zig build --summary all
-
       - name: Setup Zig (second run, should restore from cache)
         uses: ./
         with:
           version: latest
           cache: true
-
       - name: Second build (should be fully cached)
         shell: bash
         run: |
           cd project
           zig build --summary all
-
       - name: Verify output
         shell: bash
         run: ./project/zig-out/bin/project

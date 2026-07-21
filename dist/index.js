@@ -79220,7 +79220,7 @@ function shouldDeserializeResponse(parsedResponse) {
     return result;
 }
 async function deserializeResponseBody(jsonContentTypes, xmlContentTypes, response, options, parseXML) {
-    const parsedResponse = await deserializationPolicy_parse(jsonContentTypes, xmlContentTypes, response, options, parseXML);
+    const parsedResponse = await parse(jsonContentTypes, xmlContentTypes, response, options, parseXML);
     if (!shouldDeserializeResponse(parsedResponse)) {
         return parsedResponse;
     }
@@ -79345,7 +79345,7 @@ function handleErrorResponse(parsedResponse, operationSpec, responseSpec, option
     }
     return { error, shouldReturnResponse: false };
 }
-async function deserializationPolicy_parse(jsonContentTypes, xmlContentTypes, operationResponse, opts, parseXML) {
+async function parse(jsonContentTypes, xmlContentTypes, operationResponse, opts, parseXML) {
     if (!operationResponse.request.streamResponseStatusCodes?.has(operationResponse.status) &&
         operationResponse.bodyAsText) {
         const text = operationResponse.bodyAsText;
@@ -124153,7 +124153,8 @@ class Tokenizer {
      * @returns True if the character is a hexadecimal digit or underscore.
      */
     isHexDigit(c) {
-        return (c >= "0" && c <= "9") || (c >= "a" && c <= "f") || (c >= "A" && c <= "F") || c === "_";
+        return (c >= "0" && c <= "9") || (c >= "a" && c <= "f") ||
+            (c >= "A" && c <= "F") || c === "_";
     }
     /**
      * Helper to check if a character is a decimal digit or underscore.
@@ -124181,31 +124182,19 @@ class Tokenizer {
     }
 }
 
-;// CONCATENATED MODULE: ./modules/zon-ts/node/esm/src/types_2.js
+;// CONCATENATED MODULE: ./modules/zon-ts/node/esm/src/types.js
 /**
  * Represents a Zig enum literal (e.g., `.docent` or `.@"some name"`).
  */
-class types_2_EnumLiteral {
+class types_EnumLiteral {
     /** The value of the enum literal (without the leading dot). */
     value;
-    /**
-     * Creates an instance of EnumLiteral.
-     * @param value The value of the enum literal.
-     */
     constructor(value) {
         this.value = value;
     }
-    /**
-     * Returns the string representation of the enum literal (with a leading dot).
-     * @returns The string representation.
-     */
     toString() {
         return `.${this.value}`;
     }
-    /**
-     * Returns the JSON string representation of the enum literal (with a leading dot).
-     * @returns The JSON representation.
-     */
     toJSON() {
         return `.${this.value}`;
     }
@@ -124213,27 +124202,15 @@ class types_2_EnumLiteral {
 /**
  * Represents a Zig character literal (e.g., `'a'` or `'\n'`).
  */
-class types_2_CharLiteral {
+class types_CharLiteral {
     /** The value of the character literal (without the quotes). */
     value;
-    /**
-     * Creates an instance of CharLiteral.
-     * @param value The value of the character literal.
-     */
     constructor(value) {
         this.value = value;
     }
-    /**
-     * Returns the string representation of the character literal (wrapped in single quotes).
-     * @returns The string representation.
-     */
     toString() {
         return `'${this.value}'`;
     }
-    /**
-     * Returns the JSON string representation of the character literal.
-     * @returns The JSON representation.
-     */
     toJSON() {
         return this.value;
     }
@@ -124469,7 +124446,7 @@ class Parser {
                         return `.${val}`;
                     }
                     else {
-                        return new types_2_EnumLiteral(val);
+                        return new types_EnumLiteral(val);
                     }
                 }
                 else {
@@ -124506,7 +124483,7 @@ class Parser {
                     return val.charCodeAt(0);
                 }
                 else {
-                    return new types_2_CharLiteral(val);
+                    return new types_CharLiteral(val);
                 }
             }
             case TokenType.NumberLiteral: {
@@ -124673,8 +124650,12 @@ function formatKey(key) {
         let escaped = "";
         for (let i = 0; i < key.length; i++) {
             const c = key[i];
+            const code = key.charCodeAt(i);
             if (c === "\\" || c === '"') {
                 escaped += "\\" + c;
+            }
+            else if (code < 0x20 || code === 0x7f) {
+                escaped += "\\x" + code.toString(16).padStart(2, "0");
             }
             else {
                 escaped += c;
@@ -125023,2062 +125004,8 @@ async function verifySignature(pubkey, signature, fileContent) {
   return true;
 }
 
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/_shared.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-function compareNumber(a, b) {
-  if (isNaN(a) || isNaN(b)) {
-    throw new Error("Cannot compare against non-numbers");
-  }
-  return a === b ? 0 : a < b ? -1 : 1;
-}
-function checkIdentifier(v1 = [], v2 = []) {
-  // NOT having a prerelease is > having one
-  // But NOT having a build is < having one
-  if (v1.length && !v2.length) return -1;
-  if (!v1.length && v2.length) return 1;
-  return 0;
-}
-function _shared_compareIdentifier(v1 = [], v2 = []) {
-  const length = Math.max(v1.length, v2.length);
-  for(let i = 0; i < length; i++){
-    const a = v1[i];
-    const b = v2[i];
-    // same length is equal
-    if (a === undefined && b === undefined) return 0;
-    // longer > shorter
-    if (b === undefined) return 1;
-    // shorter < longer
-    if (a === undefined) return -1;
-    // string > number
-    if (typeof a === "string" && typeof b === "number") return 1;
-    // number < string
-    if (typeof a === "number" && typeof b === "string") return -1;
-    if (a < b) return -1;
-    if (a > b) return 1;
-  // If they're equal, continue comparing segments.
-  }
-  return 0;
-}
-/**
- * A single `0`, or a non-zero digit followed by zero or more digits.
- */ const NUMERIC_IDENTIFIER = "0|[1-9]\\d*";
-/**
- * Zero or more digits, followed by a letter or hyphen, and then zero or more letters, digits, or hyphens.
- */ const NON_NUMERIC_IDENTIFIER = "\\d*[a-zA-Z-][a-zA-Z0-9-]*";
-/**
- * Three dot-separated numeric identifiers.
- */ const VERSION_CORE = `(?<major>${NUMERIC_IDENTIFIER})\\.(?<minor>${NUMERIC_IDENTIFIER})\\.(?<patch>${NUMERIC_IDENTIFIER})`;
-/**
- * A numeric identifier, or a non-numeric identifier.
- */ const PRERELEASE_IDENTIFIER = `(?:${NUMERIC_IDENTIFIER}|${NON_NUMERIC_IDENTIFIER})`;
-/**
- * A hyphen, followed by one or more dot-separated pre-release version identifiers.
- * @example "-pre.release"
- */ const PRERELEASE = `(?:-(?<prerelease>${PRERELEASE_IDENTIFIER}(?:\\.${PRERELEASE_IDENTIFIER})*))`;
-/**
- * Any combination of digits, letters, or hyphens.
- */ const BUILD_IDENTIFIER = "[0-9A-Za-z-]+";
-/**
- * A plus sign, followed by one or more period-separated build metadata identifiers.
- * @example "+build.meta"
- */ const BUILD = `(?:\\+(?<buildmetadata>${BUILD_IDENTIFIER}(?:\\.${BUILD_IDENTIFIER})*))`;
-/**
- * A version, followed optionally by a pre-release version and build metadata.
- */ const FULL_VERSION = `v?${VERSION_CORE}${PRERELEASE}?${BUILD}?`;
-const FULL_REGEXP = new RegExp(`^${FULL_VERSION}$`);
-/**
- * A comparator.
- * @example `=`, `<`, `<=`, `>`, `>=`
- */ const COMPARATOR = "(?:<|>)?=?";
-/**
- * A wildcard identifier.
- * @example "x", "X", "*"
- */ const WILDCARD_IDENTIFIER = `x|X|\\*`;
-const XRANGE_IDENTIFIER = `${NUMERIC_IDENTIFIER}|${WILDCARD_IDENTIFIER}`;
-/**
- * A version that can contain wildcards.
- * @example "x", "1.x", "1.x.x", "1.2.x", "*", "1.*", "1.*.*", "1.2.*"
- */ const _shared_XRANGE = `[v=\\s]*(?<major>${XRANGE_IDENTIFIER})(?:\\.(?<minor>${XRANGE_IDENTIFIER})(?:\\.(?<patch>${XRANGE_IDENTIFIER})${PRERELEASE}?${BUILD}?)?)?`;
-/**
- * An operator (`~`, `~>`, `^`, `=`, `<`, `<=`, `>`, or `>=`), followed by an x-range.
- * @example "~1.x.x", "^1.2.*", ">=1.2.3"
- */ const _shared_OPERATOR_XRANGE_REGEXP = new RegExp(`^(?<operator>~>?|\\^|${COMPARATOR})\\s*${_shared_XRANGE}$`);
-/**
- * An empty string or a comparator (`=`, `<`, `<=`, `>`, or `>=`), followed by a version.
- * @example ">1.2.3"
- */ const _shared_COMPARATOR_REGEXP = new RegExp(`^(?<operator>${COMPARATOR})\\s*(${FULL_VERSION})$|^$`);
-/**
- * Returns true if the value is a valid SemVer number.
- *
- * Must be a number. Must not be NaN. Can be positive or negative infinity.
- * Can be between 0 and MAX_SAFE_INTEGER.
- * @param value The value to check
- * @returns True if its a valid semver number
- */ function _shared_isValidNumber(value) {
-  return typeof value === "number" && !Number.isNaN(value) && (!Number.isFinite(value) || 0 <= value && value <= Number.MAX_SAFE_INTEGER);
-}
-const MAX_LENGTH = 256;
-/**
- * Returns true if the value is a valid semver pre-release or build identifier.
- *
- * Must be a string. Must be between 1 and 256 characters long. Must match
- * the regular expression /[0-9A-Za-z-]+/.
- * @param value The value to check
- * @returns True if the value is a valid semver string.
- */ function _shared_isValidString(value) {
-  return typeof value === "string" && value.length > 0 && value.length <= MAX_LENGTH && /[0-9A-Za-z-]+/.test(value);
-}
-const NUMERIC_IDENTIFIER_REGEXP = new RegExp(`^${NUMERIC_IDENTIFIER}$`);
-function _shared_parsePrerelease(prerelease) {
-  return prerelease.split(".").filter(Boolean).map((id)=>{
-    if (NUMERIC_IDENTIFIER_REGEXP.test(id)) {
-      const number = Number(id);
-      if (_shared_isValidNumber(number)) return number;
-    }
-    return id;
-  });
-}
-function _shared_parseBuild(buildmetadata) {
-  return buildmetadata.split(".").filter(Boolean);
-}
-function parseNumber(input, errorMessage) {
-  const number = Number(input);
-  if (!_shared_isValidNumber(number)) throw new TypeError(errorMessage);
-  return number;
-}
-function _shared_isWildcardComparator(c) {
-  return Number.isNaN(c.major) && Number.isNaN(c.minor) && Number.isNaN(c.patch) && (c.prerelease === undefined || c.prerelease.length === 0) && (c.build === undefined || c.build.length === 0);
-}
-//# sourceMappingURL=_shared.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/compare.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-/**
- * Compare two SemVers.
- *
- * Returns `0` if `version1` equals `version2`, or `1` if `version1` is greater, or `-1` if `version2` is
- * greater.
- *
- * Sorts in ascending order if passed to {@linkcode Array.sort}.
- *
- * @example Usage
- * ```ts
- * import { parse, compare } from "@std/semver";
- * import { assertEquals } from "@std/assert";
- *
- * const version1 = parse("1.2.3");
- * const version2 = parse("1.2.4");
- *
- * assertEquals(compare(version1, version2), -1);
- * assertEquals(compare(version2, version1), 1);
- * assertEquals(compare(version1, version1), 0);
- * ```
- *
- * @param version1 The first SemVer to compare
- * @param version2 The second SemVer to compare
- * @returns `1` if `version1` is greater, `0` if equal, or `-1` if `version2` is greater
- */ function compare_compare(version1, version2) {
-  if (version1 === version2) return 0;
-  return compareNumber(version1.major, version2.major) || compareNumber(version1.minor, version2.minor) || compareNumber(version1.patch, version2.patch) || checkIdentifier(version1.prerelease, version2.prerelease) || _shared_compareIdentifier(version1.prerelease, version2.prerelease);
-}
-//# sourceMappingURL=compare.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/difference.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-/**
- * Returns difference between two SemVers by the release type,
- * or `undefined` if the SemVers are the same.
- *
- * @example Usage
- * ```ts
- * import { parse, difference } from "@std/semver";
- * import { assertEquals } from "@std/assert";
- *
- * const version1 = parse("1.2.3");
- * const version2 = parse("1.2.4");
- * const version3 = parse("1.3.0");
- * const version4 = parse("2.0.0");
- *
- * assertEquals(difference(version1, version2), "patch");
- * assertEquals(difference(version1, version3), "minor");
- * assertEquals(difference(version1, version4), "major");
- * assertEquals(difference(version1, version1), undefined);
- * ```
- *
- * @param version1 The first SemVer to compare
- * @param version2 The second SemVer to compare
- * @returns The release type difference or `undefined` if the versions are the same
- */ function difference(version1, version2) {
-  const hasPrerelease = version1.prerelease?.length || version2.prerelease?.length;
-  if (version1.major !== version2.major) {
-    return hasPrerelease ? "premajor" : "major";
-  }
-  if (version1.minor !== version2.minor) {
-    return hasPrerelease ? "preminor" : "minor";
-  }
-  if (version1.patch !== version2.patch) {
-    return hasPrerelease ? "prepatch" : "patch";
-  }
-  if (compareIdentifier(version1.prerelease, version2.prerelease) !== 0) {
-    return "prerelease";
-  }
-}
-//# sourceMappingURL=difference.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/_test_comparator_set.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-
-
-function testComparator(version, comparator) {
-  if (isWildcardComparator(comparator)) {
-    return true;
-  }
-  const cmp = compare(version, comparator);
-  switch(comparator.operator){
-    case "=":
-    case undefined:
-      {
-        return cmp === 0;
-      }
-    case "!=":
-      {
-        return cmp !== 0;
-      }
-    case ">":
-      {
-        return cmp > 0;
-      }
-    case "<":
-      {
-        return cmp < 0;
-      }
-    case ">=":
-      {
-        return cmp >= 0;
-      }
-    case "<=":
-      {
-        return cmp <= 0;
-      }
-  }
-}
-function _test_comparator_set_testComparatorSet(version, set) {
-  for (const comparator of set){
-    if (!testComparator(version, comparator)) return false;
-  }
-  if (!version.prerelease?.length) return true;
-  // Find the comparator that is allowed to have prereleases
-  // For example, ^1.2.3-pr.1 desugars to >=1.2.3-pr.1 <2.0.0
-  // That should allow `1.2.3-pr.2` to pass.
-  // However, `1.2.4-alpha.notready` should NOT be allowed,
-  // even though it's within the range set by the comparators.
-  for (const comparator of set){
-    if (isWildcardComparator(comparator)) continue;
-    if (!comparator.prerelease?.length) continue;
-    const { major, minor, patch } = comparator;
-    if (version.major === major && version.minor === minor && version.patch === patch) {
-      return true;
-    }
-  }
-  return false;
-}
-//# sourceMappingURL=_test_comparator_set.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/satisfies.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-/**
- * Test to see if the SemVer satisfies the range.
- *
- * @example Usage
- * ```ts
- * import { parse, parseRange, satisfies } from "@std/semver";
- * import { assert } from "@std/assert";
- *
- * const version = parse("1.2.3");
- * const range0 = parseRange(">=1.0.0 <2.0.0");
- * const range1 = parseRange(">=1.0.0 <1.3.0");
- * const range2 = parseRange(">=1.0.0 <1.2.3");
- *
- * assert(satisfies(version, range0));
- * assert(satisfies(version, range1));
- * assert(!satisfies(version, range2));
- * ```
- * @param version The version to test
- * @param range The range to check
- * @returns true if the version is in the range
- */ function satisfies_satisfies(version, range) {
-  return range.some((set)=>testComparatorSet(version, set));
-}
-//# sourceMappingURL=satisfies.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/increment.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-function bumpPrereleaseNumber(prerelease = []) {
-  const values = [
-    ...prerelease
-  ];
-  let index = values.length;
-  while(index >= 0){
-    const value = values[index];
-    if (typeof value === "number") {
-      values[index] = value + 1;
-      break;
-    }
-    index -= 1;
-  }
-  // if no number was bumped
-  if (index === -1) values.push(0);
-  return values;
-}
-function bumpPrerelease(currentPrerelease = [], newPrerelease) {
-  const bumpedPrerelease = bumpPrereleaseNumber(currentPrerelease);
-  // If the identifier is not provided, return the bumped prerelease
-  if (!newPrerelease) return bumpedPrerelease;
-  let newIdentifiers = parsePrerelease(newPrerelease);
-  if (newIdentifiers.every((id)=>typeof id === "string")) {
-    // When the give prerelease has no number and are all included in the existing prerelease
-    // it should just bump the number
-    if (newIdentifiers.every((id, i)=>id === bumpedPrerelease[i]) && typeof bumpedPrerelease[newIdentifiers.length] === "number") {
-      return bumpedPrerelease;
-    }
-    newIdentifiers = [
-      ...newIdentifiers,
-      0
-    ];
-  }
-  return newIdentifiers;
-}
-/**
- * Returns the new SemVer resulting from an increment by release type.
- *
- * `premajor`, `preminor` and `prepatch` will bump the version up to the next version,
- * based on the type, and will also add prerelease metadata.
- *
- * If called from a non-prerelease version, the `prerelease` will work the same as
- * `prepatch`. The patch version is incremented and then is made into a prerelease. If
- * the input version is already a prerelease it will simply increment the prerelease
- * metadata.
- *
- * If a `prerelease` option is specified without a number then a number will be added.
- * For example `pre` will result in `pre.0`. If the existing version already has a
- * prerelease with a number and its the same prerelease identifier then the number
- * will be incremented. If the identifier differs from the new identifier then the new
- * identifier is applied and the number is reset to `0`.
- *
- * If a prerelease is specified with a number then that exact prerelease will be used.
- *
- * If the input version has build metadata it will be preserved on the resulting version
- * unless a new build parameter is specified. Specifying `""` will unset existing build
- * metadata.
- *
- * @example Usage
- * ```ts
- * import { increment, parse } from "@std/semver";
- * import { assertEquals } from "@std/assert";
- *
- * const version = parse("1.2.3");
- * assertEquals(increment(version, "major"), parse("2.0.0"));
- * assertEquals(increment(version, "minor"), parse("1.3.0"));
- * assertEquals(increment(version, "patch"), parse("1.2.4"));
- * assertEquals(increment(version, "prerelease"), parse("1.2.4-0"));
- *
- * assertEquals(increment(parse("1.2.3-beta.0"), "prerelease"), parse("1.2.3-beta.1"));
- * assertEquals(increment(parse("1.2.3-beta.3"), "prerelease", { prerelease: "rc" }), parse("1.2.3-rc.0"));
- * assertEquals(increment(parse("1.2.3-beta.3"), "prerelease", { prerelease: "rc.1" }), parse("1.2.3-rc.1"));
- * ```
- *
- * @param version The version to increment
- * @param release The type of increment to perform
- * @param options Additional options
- * @returns The new version
- */ function increment(version, release, options = {}) {
-  const build = options.build !== undefined ? parseBuild(options.build) : version.build ?? [];
-  switch(release){
-    case "premajor":
-      return {
-        major: version.major + 1,
-        minor: 0,
-        patch: 0,
-        prerelease: bumpPrerelease(version.prerelease, options.prerelease),
-        build
-      };
-    case "preminor":
-      return {
-        major: version.major,
-        minor: version.minor + 1,
-        patch: 0,
-        prerelease: bumpPrerelease(version.prerelease, options.prerelease),
-        build
-      };
-    case "prepatch":
-      return {
-        major: version.major,
-        minor: version.minor,
-        patch: version.patch + 1,
-        prerelease: bumpPrerelease(version.prerelease, options.prerelease),
-        build
-      };
-    case "prerelease":
-      {
-        // If the input is a non-prerelease version, this acts the same as prepatch.
-        const isPrerelease = (version.prerelease ?? []).length === 0;
-        const patch = isPrerelease ? version.patch + 1 : version.patch;
-        return {
-          major: version.major,
-          minor: version.minor,
-          patch,
-          prerelease: bumpPrerelease(version.prerelease, options.prerelease),
-          build
-        };
-      }
-    case "major":
-      {
-        // If this is a pre-major version, bump up to the same major version. Otherwise increment major.
-        // 1.0.0-5 bumps to 1.0.0
-        // 1.1.0 bumps to 2.0.0
-        const isPrerelease = (version.prerelease ?? []).length === 0;
-        const major = isPrerelease || version.minor !== 0 || version.patch !== 0 ? version.major + 1 : version.major;
-        return {
-          major,
-          minor: 0,
-          patch: 0,
-          prerelease: [],
-          build
-        };
-      }
-    case "minor":
-      {
-        // If this is a pre-minor version, bump up to the same minor version. Otherwise increment minor.
-        // 1.2.0-5 bumps to 1.2.0
-        // 1.2.1 bumps to 1.3.0
-        const isPrerelease = (version.prerelease ?? []).length === 0;
-        const minor = isPrerelease || version.patch !== 0 ? version.minor + 1 : version.minor;
-        return {
-          major: version.major,
-          minor,
-          patch: 0,
-          prerelease: [],
-          build
-        };
-      }
-    case "patch":
-      {
-        // If this is not a pre-release version, it will increment the patch.
-        // If it is a pre-release it will bump up to the same patch version.
-        // 1.2.0-5 patches to 1.2.0
-        // 1.2.0 patches to 1.2.1
-        const isPrerelease = (version.prerelease ?? []).length === 0;
-        const patch = isPrerelease ? version.patch + 1 : version.patch;
-        return {
-          major: version.major,
-          minor: version.minor,
-          patch,
-          prerelease: [],
-          build
-        };
-      }
-    case "pre":
-      {
-        // 1.0.0 "pre" would become 1.0.0-0
-        // 1.0.0-0 would become 1.0.0-1
-        // 1.0.0-beta.0 would be come 1.0.0-beta.1
-        // switching the pre identifier resets the number to 0
-        return {
-          major: version.major,
-          minor: version.minor,
-          patch: version.patch,
-          prerelease: bumpPrerelease(version.prerelease, options.prerelease),
-          build
-        };
-      }
-    default:
-      throw new TypeError(`Cannot increment version: invalid argument ${release}`);
-  }
-}
-//# sourceMappingURL=increment.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/_constants.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-/**
- * ANY is a sentinel value used by some range calculations. It is not a valid
- * SemVer object and should not be used directly.
- */ const _constants_ANY = {
-  major: Number.NaN,
-  minor: Number.NaN,
-  patch: Number.NaN,
-  prerelease: [],
-  build: []
-};
-/**
- * A comparator which will span all valid semantic versions
- */ const _constants_ALL = {
-  operator: undefined,
-  ..._constants_ANY
-};
-const _constants_OPERATORS = (/* unused pure expression or super */ null && ([
-  undefined,
-  "=",
-  "!=",
-  ">",
-  ">=",
-  "<",
-  "<="
-]));
-//# sourceMappingURL=_constants.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/is_semver.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-
-/**
- * Checks to see if value is a valid SemVer object. It does a check
- * into each field including prerelease and build.
- *
- * Some invalid SemVer sentinels can still return true such as ANY and INVALID.
- * An object which has the same value as a sentinel but isn't reference equal
- * will still fail.
- *
- * Objects which are valid SemVer objects but have _extra_ fields are still
- * considered SemVer objects and this will return true.
- *
- * A type assertion is added to the value.
- *
- * @example Usage
- * ```ts
- * import { isSemVer } from "@std/semver/is-semver";
- * import { assert } from "@std/assert";
- *
- * const value = {
- *   major: 1,
- *   minor: 2,
- *   patch: 3,
- * };
- *
- * assert(isSemVer(value));
- * assert(!isSemVer({ major: 1, minor: 2 }));
- * ```
- *
- * @param value The value to check to see if its a valid SemVer object
- * @returns True if value is a valid SemVer otherwise false
- */ function is_semver_isSemVer(value) {
-  if (value === null || value === undefined) return false;
-  if (Array.isArray(value)) return false;
-  if (typeof value !== "object") return false;
-  if (value === ANY) return true;
-  const { major, minor, patch, build = [], prerelease = [] } = value;
-  return isValidNumber(major) && isValidNumber(minor) && isValidNumber(patch) && Array.isArray(prerelease) && prerelease.every((v)=>isValidString(v) || isValidNumber(v)) && Array.isArray(build) && build.every(isValidString);
-}
-//# sourceMappingURL=is_semver.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/greater_than.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-/**
- * Greater than comparison for two SemVers.
- *
- * This is equal to `compare(version1, version2) > 0`.
- *
- * @example Usage
- * ```ts
- * import { parse, greaterThan } from "@std/semver";
- * import { assert } from "@std/assert";
- *
- * const version1 = parse("1.2.3");
- * const version2 = parse("1.2.4");
- *
- * assert(greaterThan(version2, version1));
- * assert(!greaterThan(version1, version2));
- * assert(!greaterThan(version1, version1));
- * ```
- *
- * @param version1 The first version to compare
- * @param version2 The second version to compare
- * @returns `true` if `version1` is greater than `version2`, `false` otherwise
- */ function greater_than_greaterThan(version1, version2) {
-  return compare(version1, version2) > 0;
-}
-//# sourceMappingURL=greater_than.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/max_satisfying.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-
-/**
- * Returns the highest SemVer in the list that satisfies the range, or `undefined`
- * if none of them do.
- *
- * @example Usage
- * ```ts
- * import { parse, parseRange, maxSatisfying } from "@std/semver";
- * import { assertEquals } from "@std/assert";
- *
- * const versions = ["1.2.3", "1.2.4", "1.3.0", "2.0.0", "2.1.0"].map(parse);
- * const range = parseRange(">=1.0.0 <2.0.0");
- *
- * assertEquals(maxSatisfying(versions, range), parse("1.3.0"));
- * ```
- *
- * @param versions The versions to check.
- * @param range The range of possible versions to compare to.
- * @returns The highest version in versions that satisfies the range.
- */ function maxSatisfying(versions, range) {
-  let max;
-  for (const version of versions){
-    if (!satisfies(version, range)) continue;
-    max = max && greaterThan(max, version) ? max : version;
-  }
-  return max;
-}
-//# sourceMappingURL=max_satisfying.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/less_than.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-/**
- * Less than comparison for two SemVers.
- *
- * This is equal to `compare(version1, version2) < 0`.
- *
- * @example Usage
- * ```ts
- * import { parse, lessThan } from "@std/semver";
- * import { assert } from "@std/assert";
- *
- * const version1 = parse("1.2.3");
- * const version2 = parse("1.2.4");
- *
- * assert(lessThan(version1, version2));
- * assert(!lessThan(version2, version1));
- * assert(!lessThan(version1, version1));
- * ```
- *
- * @param version1 the first version to compare
- * @param version2 the second version to compare
- * @returns `true` if `version1` is less than `version2`, `false` otherwise
- */ function less_than_lessThan(version1, version2) {
-  return compare_compare(version1, version2) < 0;
-}
-//# sourceMappingURL=less_than.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/min_satisfying.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-
-/**
- * Returns the lowest SemVer in the list that satisfies the range, or `undefined` if
- * none of them do.
- *
- * @example Usage
- * ```ts
- * import { parse, parseRange, minSatisfying } from "@std/semver";
- * import { assertEquals } from "@std/assert";
- *
- * const versions = ["0.2.0", "1.2.3", "1.3.0", "2.0.0", "2.1.0"].map(parse);
- * const range = parseRange(">=1.0.0 <2.0.0");
- *
- * assertEquals(minSatisfying(versions, range), parse("1.2.3"));
- * ```
- *
- * @param versions The versions to check.
- * @param range The range of possible versions to compare to.
- * @returns The lowest version in versions that satisfies the range.
- */ function minSatisfying(versions, range) {
-  let min;
-  for (const version of versions){
-    if (!satisfies(version, range)) continue;
-    min = min && lessThan(min, version) ? min : version;
-  }
-  return min;
-}
-//# sourceMappingURL=min_satisfying.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/parse_range.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-
-function parseComparator(comparator) {
-  const match = comparator.match(COMPARATOR_REGEXP);
-  const groups = match?.groups;
-  if (!groups) return null;
-  const { operator } = groups;
-  return {
-    operator: operator || undefined,
-    ...ANY
-  };
-}
-function isWildcard(id) {
-  return !id || id.toLowerCase() === "x" || id === "*";
-}
-function handleLeftHyphenRangeGroups(leftGroup) {
-  if (isWildcard(leftGroup.major)) return;
-  if (isWildcard(leftGroup.minor)) {
-    return {
-      operator: ">=",
-      major: +leftGroup.major,
-      minor: 0,
-      patch: 0,
-      prerelease: [],
-      build: []
-    };
-  }
-  if (isWildcard(leftGroup.patch)) {
-    return {
-      operator: ">=",
-      major: +leftGroup.major,
-      minor: +leftGroup.minor,
-      patch: 0,
-      prerelease: [],
-      build: []
-    };
-  }
-  return {
-    operator: ">=",
-    major: +leftGroup.major,
-    minor: +leftGroup.minor,
-    patch: +leftGroup.patch,
-    prerelease: leftGroup.prerelease ? parsePrerelease(leftGroup.prerelease) : [],
-    build: []
-  };
-}
-function handleRightHyphenRangeGroups(rightGroups) {
-  if (isWildcard(rightGroups.major)) {
-    return;
-  }
-  if (isWildcard(rightGroups.minor)) {
-    return {
-      operator: "<",
-      major: +rightGroups.major + 1,
-      minor: 0,
-      patch: 0,
-      prerelease: [],
-      build: []
-    };
-  }
-  if (isWildcard(rightGroups.patch)) {
-    return {
-      operator: "<",
-      major: +rightGroups.major,
-      minor: +rightGroups.minor + 1,
-      patch: 0,
-      prerelease: [],
-      build: []
-    };
-  }
-  if (rightGroups.prerelease) {
-    return {
-      operator: "<=",
-      major: +rightGroups.major,
-      minor: +rightGroups.minor,
-      patch: +rightGroups.patch,
-      prerelease: parsePrerelease(rightGroups.prerelease),
-      build: []
-    };
-  }
-  return {
-    operator: "<=",
-    major: +rightGroups.major,
-    minor: +rightGroups.minor,
-    patch: +rightGroups.patch,
-    prerelease: [],
-    build: []
-  };
-}
-function parseHyphenRange(range) {
-  const leftMatch = range.match(new RegExp(`^${XRANGE}`));
-  const leftGroup = leftMatch?.groups;
-  if (!leftGroup) return null;
-  const leftLength = leftMatch[0].length;
-  const hyphenMatch = range.slice(leftLength).match(/^\s+-\s+/);
-  if (!hyphenMatch) return null;
-  const hyphenLength = hyphenMatch[0].length;
-  const rightMatch = range.slice(leftLength + hyphenLength).match(new RegExp(`^${XRANGE}\\s*$`));
-  const rightGroups = rightMatch?.groups;
-  const from = handleLeftHyphenRangeGroups(leftGroup);
-  const to = handleRightHyphenRangeGroups(rightGroups);
-  return [
-    from,
-    to
-  ].filter(Boolean);
-}
-function handleCaretOperator(groups) {
-  const majorIsWildcard = isWildcard(groups.major);
-  const minorIsWildcard = isWildcard(groups.minor);
-  const patchIsWildcard = isWildcard(groups.patch);
-  const major = +groups.major;
-  const minor = +groups.minor;
-  const patch = +groups.patch;
-  if (majorIsWildcard) return [
-    ALL
-  ];
-  if (minorIsWildcard) {
-    return [
-      {
-        operator: ">=",
-        major,
-        minor: 0,
-        patch: 0
-      },
-      {
-        operator: "<",
-        major: major + 1,
-        minor: 0,
-        patch: 0
-      }
-    ];
-  }
-  if (patchIsWildcard) {
-    if (major === 0) {
-      return [
-        {
-          operator: ">=",
-          major,
-          minor,
-          patch: 0
-        },
-        {
-          operator: "<",
-          major,
-          minor: minor + 1,
-          patch: 0
-        }
-      ];
-    }
-    return [
-      {
-        operator: ">=",
-        major,
-        minor,
-        patch: 0
-      },
-      {
-        operator: "<",
-        major: major + 1,
-        minor: 0,
-        patch: 0
-      }
-    ];
-  }
-  const prerelease = parsePrerelease(groups.prerelease ?? "");
-  if (major === 0) {
-    if (minor === 0) {
-      return [
-        {
-          operator: ">=",
-          major,
-          minor,
-          patch,
-          prerelease
-        },
-        {
-          operator: "<",
-          major,
-          minor,
-          patch: patch + 1
-        }
-      ];
-    }
-    return [
-      {
-        operator: ">=",
-        major,
-        minor,
-        patch,
-        prerelease
-      },
-      {
-        operator: "<",
-        major,
-        minor: minor + 1,
-        patch: 0
-      }
-    ];
-  }
-  return [
-    {
-      operator: ">=",
-      major,
-      minor,
-      patch,
-      prerelease
-    },
-    {
-      operator: "<",
-      major: major + 1,
-      minor: 0,
-      patch: 0
-    }
-  ];
-}
-function handleTildeOperator(groups) {
-  const majorIsWildcard = isWildcard(groups.major);
-  const minorIsWildcard = isWildcard(groups.minor);
-  const patchIsWildcard = isWildcard(groups.patch);
-  const major = +groups.major;
-  const minor = +groups.minor;
-  const patch = +groups.patch;
-  if (majorIsWildcard) return [
-    ALL
-  ];
-  if (minorIsWildcard) {
-    return [
-      {
-        operator: ">=",
-        major,
-        minor: 0,
-        patch: 0
-      },
-      {
-        operator: "<",
-        major: major + 1,
-        minor: 0,
-        patch: 0
-      }
-    ];
-  }
-  if (patchIsWildcard) {
-    return [
-      {
-        operator: ">=",
-        major,
-        minor,
-        patch: 0
-      },
-      {
-        operator: "<",
-        major,
-        minor: minor + 1,
-        patch: 0
-      }
-    ];
-  }
-  const prerelease = parsePrerelease(groups.prerelease ?? "");
-  return [
-    {
-      operator: ">=",
-      major,
-      minor,
-      patch,
-      prerelease
-    },
-    {
-      operator: "<",
-      major,
-      minor: minor + 1,
-      patch: 0
-    }
-  ];
-}
-function handleLessThanOperator(groups) {
-  const majorIsWildcard = isWildcard(groups.major);
-  const minorIsWildcard = isWildcard(groups.minor);
-  const patchIsWildcard = isWildcard(groups.patch);
-  const major = +groups.major;
-  const minor = +groups.minor;
-  const patch = +groups.patch;
-  if (majorIsWildcard) return [
-    {
-      operator: "<",
-      major: 0,
-      minor: 0,
-      patch: 0
-    }
-  ];
-  if (minorIsWildcard) {
-    if (patchIsWildcard) return [
-      {
-        operator: "<",
-        major,
-        minor: 0,
-        patch: 0
-      }
-    ];
-    return [
-      {
-        operator: "<",
-        major,
-        minor: 0,
-        patch: 0
-      }
-    ];
-  }
-  if (patchIsWildcard) return [
-    {
-      operator: "<",
-      major,
-      minor,
-      patch: 0
-    }
-  ];
-  const prerelease = parsePrerelease(groups.prerelease ?? "");
-  const build = parseBuild(groups.build ?? "");
-  return [
-    {
-      operator: "<",
-      major,
-      minor,
-      patch,
-      prerelease,
-      build
-    }
-  ];
-}
-function handleLessThanOrEqualOperator(groups) {
-  const minorIsWildcard = isWildcard(groups.minor);
-  const patchIsWildcard = isWildcard(groups.patch);
-  const major = +groups.major;
-  const minor = +groups.minor;
-  const patch = +groups.patch;
-  if (minorIsWildcard) {
-    return [
-      {
-        operator: "<",
-        major: major + 1,
-        minor: 0,
-        patch: 0
-      }
-    ];
-  }
-  if (patchIsWildcard) {
-    return [
-      {
-        operator: "<",
-        major,
-        minor: minor + 1,
-        patch: 0
-      }
-    ];
-  }
-  const prerelease = parsePrerelease(groups.prerelease ?? "");
-  const build = parseBuild(groups.build ?? "");
-  return [
-    {
-      operator: "<=",
-      major,
-      minor,
-      patch,
-      prerelease,
-      build
-    }
-  ];
-}
-function handleGreaterThanOperator(groups) {
-  const majorIsWildcard = isWildcard(groups.major);
-  const minorIsWildcard = isWildcard(groups.minor);
-  const patchIsWildcard = isWildcard(groups.patch);
-  const major = +groups.major;
-  const minor = +groups.minor;
-  const patch = +groups.patch;
-  if (majorIsWildcard) return [
-    {
-      operator: "<",
-      major: 0,
-      minor: 0,
-      patch: 0
-    }
-  ];
-  if (minorIsWildcard) {
-    return [
-      {
-        operator: ">=",
-        major: major + 1,
-        minor: 0,
-        patch: 0
-      }
-    ];
-  }
-  if (patchIsWildcard) {
-    return [
-      {
-        operator: ">=",
-        major,
-        minor: minor + 1,
-        patch: 0
-      }
-    ];
-  }
-  const prerelease = parsePrerelease(groups.prerelease ?? "");
-  const build = parseBuild(groups.build ?? "");
-  return [
-    {
-      operator: ">",
-      major,
-      minor,
-      patch,
-      prerelease,
-      build
-    }
-  ];
-}
-function handleGreaterOrEqualOperator(groups) {
-  const majorIsWildcard = isWildcard(groups.major);
-  const minorIsWildcard = isWildcard(groups.minor);
-  const patchIsWildcard = isWildcard(groups.patch);
-  const major = +groups.major;
-  const minor = +groups.minor;
-  const patch = +groups.patch;
-  if (majorIsWildcard) return [
-    ALL
-  ];
-  if (minorIsWildcard) {
-    return [
-      {
-        operator: ">=",
-        major,
-        minor: 0,
-        patch: 0
-      }
-    ];
-  }
-  if (patchIsWildcard) return [
-    {
-      operator: ">=",
-      major,
-      minor,
-      patch: 0
-    }
-  ];
-  const prerelease = parsePrerelease(groups.prerelease ?? "");
-  const build = parseBuild(groups.build ?? "");
-  return [
-    {
-      operator: ">=",
-      major,
-      minor,
-      patch,
-      prerelease,
-      build
-    }
-  ];
-}
-function handleEqualOperator(groups) {
-  const majorIsWildcard = isWildcard(groups.major);
-  const minorIsWildcard = isWildcard(groups.minor);
-  const patchIsWildcard = isWildcard(groups.patch);
-  const major = +groups.major;
-  const minor = +groups.minor;
-  const patch = +groups.patch;
-  if (majorIsWildcard) return [
-    ALL
-  ];
-  if (minorIsWildcard) {
-    return [
-      {
-        operator: ">=",
-        major,
-        minor: 0,
-        patch: 0
-      },
-      {
-        operator: "<",
-        major: major + 1,
-        minor: 0,
-        patch: 0
-      }
-    ];
-  }
-  if (patchIsWildcard) {
-    return [
-      {
-        operator: ">=",
-        major,
-        minor,
-        patch: 0
-      },
-      {
-        operator: "<",
-        major,
-        minor: minor + 1,
-        patch: 0
-      }
-    ];
-  }
-  const prerelease = parsePrerelease(groups.prerelease ?? "");
-  const build = parseBuild(groups.build ?? "");
-  return [
-    {
-      operator: groups.operator === "=" ? "=" : undefined,
-      major,
-      minor,
-      patch,
-      prerelease,
-      build
-    }
-  ];
-}
-function parseOperatorRange(string) {
-  const groups = string.match(OPERATOR_XRANGE_REGEXP)?.groups;
-  if (!groups) return parseComparator(string);
-  switch(groups.operator){
-    case "^":
-      return handleCaretOperator(groups);
-    case "~":
-    case "~>":
-      return handleTildeOperator(groups);
-    case "<":
-      return handleLessThanOperator(groups);
-    case "<=":
-      return handleLessThanOrEqualOperator(groups);
-    case ">":
-      return handleGreaterThanOperator(groups);
-    case ">=":
-      return handleGreaterOrEqualOperator(groups);
-    default:
-      return handleEqualOperator(groups);
-  }
-}
-function parseOperatorRanges(string) {
-  return string.split(/\s+/).flatMap(parseOperatorRange);
-}
-/**
- * Parses a range string into a {@linkcode Range} object.
- *
- * @example Usage
- * ```ts
- * import { parseRange } from "@std/semver/parse-range";
- * import { assertEquals } from "@std/assert";
- *
- * const range = parseRange(">=1.0.0 <2.0.0 || >=3.0.0");
- * assertEquals(range, [
- *   [
- *     { operator: ">=", major: 1, minor: 0, patch: 0, prerelease: [], build: [] },
- *     { operator: "<", major: 2, minor: 0, patch: 0, prerelease: [], build: [] },
- *   ],
- *   [
- *     { operator: ">=", major: 3, minor: 0, patch: 0, prerelease: [], build: [] },
- *   ]
- * ]);
- * ```
- *
- * @throws {TypeError} If the input range is invalid.
- * @param value The range set string
- * @returns A valid SemVer range
- */ function parse_range_parseRange(value) {
-  const result = value// remove spaces between operators and versions
-  .replaceAll(/(?<=[<>=~^])(\s+)/g, "").split(/\s*\|\|\s*/).map((string)=>parseHyphenRange(string) || parseOperatorRanges(string));
-  if (result.some((r)=>r.includes(null))) {
-    throw new TypeError(`Cannot parse version range: range "${value}" is invalid`);
-  }
-  return result;
-}
-//# sourceMappingURL=parse_range.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/parse.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-
-/**
- * Attempt to parse a string as a semantic version, returning a SemVer object.
- *
- * @example Usage
- * ```ts
- * import { parse } from "@std/semver/parse";
- * import { assertEquals } from "@std/assert";
- *
- * const version = parse("1.2.3");
- * assertEquals(version, {
- *   major: 1,
- *   minor: 2,
- *   patch: 3,
- *   prerelease: [],
- *   build: [],
- * });
- * ```
- *
- * @throws {TypeError} If the input string is invalid.
- * @param value The version string to parse
- * @returns A valid SemVer
- */ function std_semver_parse_parse(value) {
-  if (typeof value !== "string") {
-    throw new TypeError(`Cannot parse version as version must be a string: received ${typeof value}`);
-  }
-  if (value.length > MAX_LENGTH) {
-    throw new TypeError(`Cannot parse version as version length is too long: length is ${value.length}, max length is ${MAX_LENGTH}`);
-  }
-  value = value.trim();
-  const groups = value.match(FULL_REGEXP)?.groups;
-  if (!groups) throw new TypeError(`Cannot parse version: ${value}`);
-  const major = parseNumber(groups.major, `Cannot parse version ${value}: invalid major version`);
-  const minor = parseNumber(groups.minor, `Cannot parse version ${value}: invalid minor version`);
-  const patch = parseNumber(groups.patch, `Cannot parse version ${value}: invalid patch version`);
-  const prerelease = groups.prerelease ? _shared_parsePrerelease(groups.prerelease) : [];
-  const build = groups.buildmetadata ? _shared_parseBuild(groups.buildmetadata) : [];
-  return {
-    major,
-    minor,
-    patch,
-    prerelease,
-    build
-  };
-}
-//# sourceMappingURL=parse.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/range_intersects.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-
-
-function comparatorIntersects(comparator1, comparator2) {
-  const op0 = comparator1.operator;
-  const op1 = comparator2.operator;
-  if (op0 === undefined) {
-    // if comparator1 is empty comparator, then returns true
-    if (isWildcardComparator(comparator1)) return true;
-    return satisfies(comparator1, [
-      [
-        comparator2
-      ]
-    ]);
-  }
-  if (op1 === undefined) {
-    if (isWildcardComparator(comparator2)) return true;
-    return satisfies(comparator2, [
-      [
-        comparator1
-      ]
-    ]);
-  }
-  const cmp = compare(comparator1, comparator2);
-  const sameDirectionIncreasing = (op0 === ">=" || op0 === ">") && (op1 === ">=" || op1 === ">");
-  const sameDirectionDecreasing = (op0 === "<=" || op0 === "<") && (op1 === "<=" || op1 === "<");
-  const sameSemVer = cmp === 0;
-  const differentDirectionsInclusive = (op0 === ">=" || op0 === "<=") && (op1 === ">=" || op1 === "<=");
-  const oppositeDirectionsLessThan = cmp === -1 && (op0 === ">=" || op0 === ">") && (op1 === "<=" || op1 === "<");
-  const oppositeDirectionsGreaterThan = cmp === 1 && (op0 === "<=" || op0 === "<") && (op1 === ">=" || op1 === ">");
-  return sameDirectionIncreasing || sameDirectionDecreasing || sameSemVer && differentDirectionsInclusive || oppositeDirectionsLessThan || oppositeDirectionsGreaterThan;
-}
-function rangesSatisfiable(ranges) {
-  return ranges.every((r)=>{
-    // For each OR at least one AND must be satisfiable
-    return r.some((comparators)=>comparatorsSatisfiable(comparators));
-  });
-}
-function comparatorsSatisfiable(comparators) {
-  // Comparators are satisfiable if they all intersect with each other
-  for(let i = 0; i < comparators.length - 1; i++){
-    const comparator1 = comparators[i];
-    for (const comparator2 of comparators.slice(i + 1)){
-      if (!comparatorIntersects(comparator1, comparator2)) {
-        return false;
-      }
-    }
-  }
-  return true;
-}
-/**
- * The ranges intersect every range of AND comparators intersects with a least
- * one range of OR ranges.
- *
- * @example Usage
- * ```ts
- * import { parseRange, rangeIntersects } from "@std/semver";
- * import { assert } from "@std/assert";
- *
- * const range1 = parseRange(">=1.0.0 <2.0.0");
- * const range2 = parseRange(">=1.0.0 <1.2.3");
- * const range3 = parseRange(">=1.2.3 <2.0.0");
- *
- * assert(rangeIntersects(range1, range2));
- * assert(rangeIntersects(range1, range3));
- * assert(!rangeIntersects(range2, range3));
- * ```
- *
- * @param range1 range 0
- * @param range2 range 1
- * @returns returns true if the given ranges intersect, false otherwise
- */ function rangeIntersects(range1, range2) {
-  return rangesSatisfiable([
-    range1,
-    range2
-  ]) && range1.some((range10)=>{
-    return range2.some((r11)=>{
-      return range10.every((comparator1)=>{
-        return r11.every((comparator2)=>comparatorIntersects(comparator1, comparator2));
-      });
-    });
-  });
-}
-//# sourceMappingURL=range_intersects.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/try_parse_range.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-/**
- * Parses the given range string and returns a Range object. If the range string
- * is invalid, `undefined` is returned.
- *
- * @example Usage
- * ```ts
- * import { tryParseRange } from "@std/semver";
- * import { assertEquals } from "@std/assert";
- *
- * assertEquals(tryParseRange(">=1.2.3 <1.2.4"), [
- *  [
- *    { operator: ">=", major: 1, minor: 2, patch: 3, prerelease: [], build: [] },
- *    { operator: "<", major: 1, minor: 2, patch: 4, prerelease: [], build: [] },
- *  ],
- * ]);
- * ```
- *
- * @param value The range string
- * @returns A Range object if valid otherwise `undefined`
- */ function tryParseRange(value) {
-  try {
-    // Return '*' instead of '' so that truthiness works.
-    // This will throw if it's invalid anyway
-    return parseRange(value);
-  } catch  {
-    return undefined;
-  }
-}
-//# sourceMappingURL=try_parse_range.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/is_range.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-
-
-function isComparator(value) {
-  if (value === null || value === undefined || Array.isArray(value) || typeof value !== "object") return false;
-  if (value === ALL) return true;
-  const { operator } = value;
-  return (operator === undefined || OPERATORS.includes(operator)) && isSemVer(value);
-}
-/**
- * Does a deep check on the object to determine if its a valid range.
- *
- * Objects with extra fields are still considered valid if they have at
- * least the correct fields.
- *
- * Adds a type assertion if true.
- *
- * @example Usage
- * ```ts
- * import { isRange } from "@std/semver/is-range";
- * import { assert } from "@std/assert";
- *
- * const range = [[{ major: 1, minor: 2, patch: 3 }]];
- * assert(isRange(range));
- * assert(!isRange({}));
- * ```
- * @param value The value to check if its a valid Range
- * @returns True if its a valid Range otherwise false.
- */ function isRange(value) {
-  return Array.isArray(value) && value.every((r)=>Array.isArray(r) && r.every((c)=>isComparator(c)));
-}
-//# sourceMappingURL=is_range.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/can_parse.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-/**
- * Returns true if the string can be parsed as SemVer.
- *
- * @example Usage
- * ```ts
- * import { canParse } from "@std/semver/can-parse";
- * import { assert, assertFalse } from "@std/assert";
- *
- * assert(canParse("1.2.3"));
- * assertFalse(canParse("invalid"));
- * ```
- *
- * @param value The version string to check
- * @returns `true` if the string can be parsed as SemVer, `false` otherwise
- */ function canParse(value) {
-  try {
-    parse(value);
-    return true;
-  } catch  {
-    return false;
-  }
-}
-//# sourceMappingURL=can_parse.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/try_parse.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-/**
- * Returns the parsed SemVer, or `undefined` if it's not valid.
- *
- * @example Usage
- * ```ts
- * import { tryParse } from "@std/semver/try-parse";
- * import { assertEquals } from "@std/assert";
- *
- * assertEquals(tryParse("1.2.3"), { major: 1, minor: 2, patch: 3, prerelease: [], build: [] });
- * assertEquals(tryParse("1.2.3-alpha"), { major: 1, minor: 2, patch: 3, prerelease: ["alpha"], build: [] });
- * assertEquals(tryParse("1.2.3+build"), { major: 1, minor: 2, patch: 3, prerelease: [], build: ["build"] });
- * assertEquals(tryParse("1.2.3-alpha.1+build.1"), { major: 1, minor: 2, patch: 3, prerelease: ["alpha", 1], build: ["build", "1"] });
- * assertEquals(tryParse(" invalid "), undefined);
- * ```
- *
- * @param value The version string to parse
- * @returns A valid SemVer or `undefined`
- */ function tryParse(value) {
-  try {
-    return parse(value);
-  } catch  {
-    return undefined;
-  }
-}
-//# sourceMappingURL=try_parse.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/format_range.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-
-function formatComparator(comparator) {
-  const { operator } = comparator;
-  return `${operator === undefined ? "" : operator}${isWildcardComparator(comparator) ? "*" : format(comparator)}`;
-}
-/**
- * Formats the SemVerrange into a string.
- *
- * @example Usage
- * ```ts
- * import { formatRange, parseRange } from "@std/semver";
- * import { assertEquals } from "@std/assert";
- *
- * const range = parseRange(">=1.2.3 <1.2.4");
- * assertEquals(formatRange(range), ">=1.2.3 <1.2.4");
- * ```
- *
- * @param range The range to format
- * @returns A string representation of the SemVer range
- */ function formatRange(range) {
-  return range.map((c)=>c.map((c)=>formatComparator(c)).join(" ")).join("||");
-}
-//# sourceMappingURL=format_range.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/equals.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-/**
- * Returns `true` if both SemVers are equivalent.
- *
- * This is equal to `compare(version1, version2) === 0`.
- *
- * @example Usage
- * ```ts
- * import { parse, equals } from "@std/semver";
- * import { assert } from "@std/assert";
- *
- * const version1 = parse("1.2.3");
- * const version2 = parse("1.2.3");
- *
- * assert(equals(version1, version2));
- * assert(!equals(version1, parse("1.2.4")));
- * ```
- *
- * @param version1 The first SemVer to compare
- * @param version2 The second SemVer to compare
- * @returns `true` if `version1` is equal to `version2`, `false` otherwise
- */ function equals(version1, version2) {
-  return compare(version1, version2) === 0;
-}
-//# sourceMappingURL=equals.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/not_equals.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-/**
- * Not equal comparison for two SemVers.
- *
- * This is equal to `compare(version1, version2) !== 0`.
- *
- * @example Usage
- * ```ts
- * import { parse, notEquals } from "@std/semver";
- * import { assert } from "@std/assert";
- *
- * const version1 = parse("1.2.3");
- * const version2 = parse("1.2.4");
- *
- * assert(notEquals(version1, version2));
- * assert(!notEquals(version1, version1));
- * ```
- *
- * @param version1 The first version to compare
- * @param version2 The second version to compare
- * @returns `true` if `version1` is not equal to `version2`, `false` otherwise
- */ function notEquals(version1, version2) {
-  return compare(version1, version2) !== 0;
-}
-//# sourceMappingURL=not_equals.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/greater_than_range.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-
-
-/**
- * Check if the SemVer is greater than the range.
- *
- * @example Usage
- * ```ts
- * import { parse, parseRange, greaterThanRange } from "@std/semver";
- * import { assert } from "@std/assert";
- *
- * const version1 = parse("1.2.3");
- * const version2 = parse("1.2.4");
- * const range = parseRange(">=1.2.3 <1.2.4");
- *
- * assert(!greaterThanRange(version1, range));
- * assert(greaterThanRange(version2, range));
- * ```
- *
- * @param version The version to check.
- * @param range The range to check against.
- * @returns `true` if the semver is greater than the range, `false` otherwise.
- */ function greaterThanRange(version, range) {
-  return range.every((comparatorSet)=>greaterThanComparatorSet(version, comparatorSet));
-}
-function greaterThanComparatorSet(version, comparatorSet) {
-  // If the comparator set contains wildcard, then the semver is not greater than the range.
-  if (comparatorSet.some(isWildcardComparator)) return false;
-  // If the semver satisfies the comparator set, then it's not greater than the range.
-  if (testComparatorSet(version, comparatorSet)) return false;
-  // If the semver is less than any of the comparator set, then it's not greater than the range.
-  if (comparatorSet.some((comparator)=>lessThanComparator(version, comparator))) return false;
-  return true;
-}
-function lessThanComparator(version, comparator) {
-  const cmp = compare(version, comparator);
-  switch(comparator.operator){
-    case "=":
-    case undefined:
-      return cmp < 0;
-    case "!=":
-      return cmp >= 0;
-    case ">":
-      return cmp <= 0;
-    case "<":
-      return false;
-    case ">=":
-      return cmp < 0;
-    case "<=":
-      return false;
-  }
-}
-//# sourceMappingURL=greater_than_range.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/greater_or_equal.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-/**
- * Greater than or equal to comparison for two SemVers.
- *
- * This is equal to `compare(version1, version2) >= 0`.
- *
- * @example Usage
- * ```ts
- * import { parse, greaterOrEqual } from "@std/semver";
- * import { assert } from "@std/assert";
- *
- * const version1 = parse("1.2.3");
- * const version2 = parse("1.2.4");
- *
- * assert(greaterOrEqual(version2, version1));
- * assert(!greaterOrEqual(version1, version2));
- * assert(greaterOrEqual(version1, version1));
- * ```
- *
- * @param version1 The first version to compare
- * @param version2 The second version to compare
- * @returns `true` if `version1` is greater than or equal to `version2`, `false` otherwise
- */ function greaterOrEqual(version1, version2) {
-  return compare(version1, version2) >= 0;
-}
-//# sourceMappingURL=greater_or_equal.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/less_than_range.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-
-
-/**
- * Check if the SemVer is less than the range.
- *
- * @example Usage
- * ```ts
- * import { parse, parseRange, lessThanRange } from "@std/semver";
- * import { assert } from "@std/assert";
- *
- * const version1 = parse("1.2.3");
- * const version2 = parse("1.0.0");
- * const range = parseRange(">=1.2.3 <1.2.4");
- *
- * assert(!lessThanRange(version1, range));
- * assert(lessThanRange(version2, range));
- * ```
- *
- * @param version The version to check.
- * @param range The range to check against.
- * @returns `true` if the SemVer is less than the range, `false` otherwise.
- */ function lessThanRange(version, range) {
-  return range.every((comparatorSet)=>lessThanComparatorSet(version, comparatorSet));
-}
-function lessThanComparatorSet(version, comparatorSet) {
-  // If the comparator set contains wildcard, then the semver is not greater than the range.
-  if (comparatorSet.some(isWildcardComparator)) return false;
-  // If the SemVer satisfies the comparator set, then it's not less than the range.
-  if (testComparatorSet(version, comparatorSet)) return false;
-  // If the SemVer is greater than any of the comparator set, then it's not less than the range.
-  if (comparatorSet.some((comparator)=>greaterThanComparator(version, comparator))) return false;
-  return true;
-}
-function greaterThanComparator(version, comparator) {
-  const cmp = compare(version, comparator);
-  switch(comparator.operator){
-    case "=":
-    case undefined:
-      return cmp > 0;
-    case "!=":
-      return cmp <= 0;
-    case ">":
-      return false;
-    case "<":
-      return cmp >= 0;
-    case ">=":
-      return false;
-    case "<=":
-      return cmp > 0;
-  }
-}
-//# sourceMappingURL=less_than_range.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/less_or_equal.js
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-
-/**
- * Less than or equal to comparison for two SemVers.
- *
- * This is equal to `compare(version1, version2) <= 0`.
- *
- * @example Usage
- * ```ts
- * import { parse, lessOrEqual } from "@std/semver";
- * import { assert } from "@std/assert";
- *
- * const version1 = parse("1.2.3");
- * const version2 = parse("1.2.4");
- *
- * assert(lessOrEqual(version1, version2));
- * assert(!lessOrEqual(version2, version1));
- * assert(lessOrEqual(version1, version1));
- * ```
- *
- * @param version1 the first version to compare
- * @param version2 the second version to compare
- * @returns `true` if `version1` is less than or equal to `version2`, `false` otherwise
- */ function lessOrEqual(version1, version2) {
-  return compare(version1, version2) <= 0;
-}
-//# sourceMappingURL=less_or_equal.js.map
-;// CONCATENATED MODULE: ./node_modules/.pnpm/@jsr+std__semver@1.0.8/node_modules/@jsr/std__semver/mod.js
-// Copyright Isaac Z. Schlueter and Contributors. All rights reserved. ISC license.
-// Copyright 2018-2026 the Deno authors. MIT license.
-// This module is browser compatible.
-/**
- * The Semantic Version parser.
- *
- * Adapted directly from {@link https://github.com/npm/node-semver | semver}.
- *
- * ```ts
- * import {
- *   parse,
- *   parseRange,
- *   greaterThan,
- *   lessThan,
- *   format
- * } from "@std/semver";
- * import { assertEquals } from "@std/assert";
- *
- * const semver = parse("1.2.3");
- * assertEquals(semver, {
- *   major: 1,
- *   minor: 2,
- *   patch: 3,
- *   prerelease: [],
- *   build: []
- * });
- *
- * assertEquals(format(semver), "1.2.3");
- *
- * const range = parseRange("1.x || >=2.5.0 || 5.0.0 - 7.2.3");
- *
- * const s0 = parse("1.2.3");
- * const s1 = parse("9.8.7");
- *
- * assertEquals(greaterThan(s0, s1), false);
- * assertEquals(lessThan(s0, s1), true);
- * ```
- *
- * ## Versions
- *
- * A "version" is described by the `v2.0.0` specification found at
- * <https://semver.org>.
- *
- * A leading `"="` or `"v"` character is stripped off and ignored.
- *
- * ## Format
- *
- * Semantic versions can be formatted as strings, by default they
- * are formatted as `full`. Below is a diagram showing the various
- * formatting options.
- *
- * ```
- *           full
- *        ┌───┴───┐
- *     release    │
- *    ┌───┴───┐   │
- * primary    │   │
- *  ┌─┴─┐     │   │
- *  1.2.3-pre.1+b.1
- *  │ │ │ └─┬─┘ └┬┘
- *  │ │ │   │    └── build
- *  │ │ │   └─────── pre
- *  │ │ └─────────── patch
- *  │ └───────────── minor
- *  └─────────────── major
- * ```
- *
- * ## Ranges
- *
- * A version {@linkcode Range} is a set of {@linkcode Comparator}s which specify
- * versions that satisfy the range.
- *
- * A {@linkcode Comparator} is composed of an {@linkcode Operator} and a
- * {@link SemVer}. The set of primitive `operators` is:
- *
- * - `<` Less than
- * - `<=` Less than or equal to
- * - `>` Greater than
- * - `>=` Greater than or equal to
- * - `=` Equal. If no operator is specified, then equality is assumed, so this
- *   operator is optional, but MAY be included.
- *
- * For example, the comparator `>=1.2.7` would match the versions `1.2.7`, `1.2.8`,
- * `2.5.3`, and `1.3.9`, but not the versions `1.2.6` or `1.1.0`.
- *
- * Comparators can be joined by whitespace to form a `comparator set`, which is
- * satisfied by the **intersection** of all of the comparators it includes.
- *
- * A range is composed of one or more comparator sets, joined by `||`. A version
- * matches a range if and only if every comparator in at least one of the
- * `||`-separated comparator sets is satisfied by the version.
- *
- * For example, the range `>=1.2.7 <1.3.0` would match the versions `1.2.7`,
- * `1.2.8`, and `1.2.99`, but not the versions `1.2.6`, `1.3.0`, or `1.1.0`.
- *
- * The range `1.2.7 || >=1.2.9 <2.0.0` would match the versions `1.2.7`, `1.2.9`,
- * and `1.4.6`, but not the versions `1.2.8` or `2.0.0`.
- *
- * ### Prerelease Tags
- *
- * If a version has a prerelease tag (for example, `1.2.3-alpha.3`) then it will
- * only be allowed to satisfy comparator sets if at least one comparator with the
- * same `[major, minor, patch]` tuple also has a prerelease tag.
- *
- * For example, the range `>1.2.3-alpha.3` would be allowed to match the version
- * `1.2.3-alpha.7`, but it would _not_ be satisfied by `3.4.5-alpha.9`, even though
- * `3.4.5-alpha.9` is technically "greater than" `1.2.3-alpha.3` according to the
- * SemVer sort rules. The version range only accepts prerelease tags on the `1.2.3`
- * version. The version `3.4.5` _would_ satisfy the range, because it does not have
- * a prerelease flag, and `3.4.5` is greater than `1.2.3-alpha.7`.
- *
- * The purpose for this behavior is twofold. First, prerelease versions frequently
- * are updated very quickly, and contain many breaking changes that are (by the
- * author"s design) not yet fit for public consumption. Therefore, by default, they
- * are excluded from range matching semantics.
- *
- * Second, a user who has opted into using a prerelease version has clearly
- * indicated the intent to use _that specific_ set of alpha/beta/rc versions. By
- * including a prerelease tag in the range, the user is indicating that they are
- * aware of the risk. However, it is still not appropriate to assume that they have
- * opted into taking a similar risk on the _next_ set of prerelease versions.
- *
- * #### Prerelease Identifiers
- *
- * The method {@linkcode increment} takes an additional `identifier` string
- * argument that will append the value of the string as a prerelease identifier:
- *
- * ```ts
- * import { increment, parse } from "@std/semver";
- * import { assertEquals } from "@std/assert";
- *
- * assertEquals(increment(parse("1.2.3"), "prerelease", { prerelease: "alpha" }), parse("1.2.4-alpha.0"));
- * ```
- *
- * ### Build Metadata
- *
- * Build metadata is `.` delimited alpha-numeric string.
- * When parsing a version it is retained on the `build: string[]` field
- * of the SemVer instance. When incrementing there is an additional parameter that
- * can set the build metadata on the SemVer instance.
- *
- * ### Advanced Range Syntax
- *
- * Advanced range syntax desugars to primitive comparators in deterministic ways.
- *
- * Advanced ranges may be combined in the same way as primitive comparators using
- * white space or `||`.
- *
- * #### Hyphen Ranges `X.Y.Z - A.B.C`
- *
- * Specifies an inclusive set.
- *
- * - `1.2.3 - 2.3.4` := `>=1.2.3 <=2.3.4`
- *
- * If a partial version is provided as the first version in the inclusive range,
- * then the missing pieces are replaced with zeroes.
- *
- * - `1.2 - 2.3.4` := `>=1.2.0 <=2.3.4`
- *
- * If a partial version is provided as the second version in the inclusive range,
- * then all versions that start with the supplied parts of the tuple are accepted,
- * but nothing that would be greater than the provided tuple parts.
- *
- * - `1.2.3 - 2.3` := `>=1.2.3 <2.4.0`
- * - `1.2.3 - 2` := `>=1.2.3 <3.0.0`
- *
- * #### X-Ranges `1.2.x` `1.X` `1.2.*` `*`
- *
- * Any of `X`, `x`, or `*` may be used to "stand in" for one of the numeric values
- * in the `[major, minor, patch]` tuple.
- *
- * - `*` := `>=0.0.0` (Any version satisfies)
- * - `1.x` := `>=1.0.0 <2.0.0` (Matching major version)
- * - `1.2.x` := `>=1.2.0 <1.3.0` (Matching major and minor versions)
- *
- * A partial version range is treated as an X-Range, so the special character is in
- * fact optional.
- *
- * - `""` (empty string) := `*` := `>=0.0.0`
- * - `1` := `1.x.x` := `>=1.0.0 <2.0.0`
- * - `1.2` := `1.2.x` := `>=1.2.0 <1.3.0`
- *
- * #### Tilde Ranges `~1.2.3` `~1.2` `~1`
- *
- * Allows patch-level changes if a minor version is specified on the comparator.
- * Allows minor-level changes if not.
- *
- * - `~1.2.3` := `>=1.2.3 <1.(2+1).0` := `>=1.2.3 <1.3.0`
- * - `~1.2` := `>=1.2.0 <1.(2+1).0` := `>=1.2.0 <1.3.0` (Same as `1.2.x`)
- * - `~1` := `>=1.0.0 <(1+1).0.0` := `>=1.0.0 <2.0.0` (Same as `1.x`)
- * - `~0.2.3` := `>=0.2.3 <0.(2+1).0` := `>=0.2.3 <0.3.0`
- * - `~0.2` := `>=0.2.0 <0.(2+1).0` := `>=0.2.0 <0.3.0` (Same as `0.2.x`)
- * - `~0` := `>=0.0.0 <(0+1).0.0` := `>=0.0.0 <1.0.0` (Same as `0.x`)
- * - `~1.2.3-beta.2` := `>=1.2.3-beta.2 <1.3.0` Note that prereleases in the
- *   `1.2.3` version will be allowed, if they are greater than or equal to
- *   `beta.2`. So, `1.2.3-beta.4` would be allowed, but `1.2.4-beta.2` would not,
- *   because it is a prerelease of a different `[major, minor, patch]` tuple.
- *
- * #### Caret Ranges `^1.2.3` `^0.2.5` `^0.0.4`
- *
- * Allows changes that do not modify the left-most non-zero element in the
- * `[major, minor, patch]` tuple. In other words, this allows patch and minor
- * updates for versions `1.0.0` and above, patch updates for versions
- * `0.X >=0.1.0`, and _no_ updates for versions `0.0.X`.
- *
- * Many authors treat a `0.x` version as if the `x` were the major
- * "breaking-change" indicator.
- *
- * Caret ranges are ideal when an author may make breaking changes between `0.2.4`
- * and `0.3.0` releases, which is a common practice. However, it presumes that
- * there will _not_ be breaking changes between `0.2.4` and `0.2.5`. It allows for
- * changes that are presumed to be additive (but non-breaking), according to
- * commonly observed practices.
- *
- * - `^1.2.3` := `>=1.2.3 <2.0.0`
- * - `^0.2.3` := `>=0.2.3 <0.3.0`
- * - `^0.0.3` := `>=0.0.3 <0.0.4`
- * - `^1.2.3-beta.2` := `>=1.2.3-beta.2 <2.0.0` Note that prereleases in the
- *   `1.2.3` version will be allowed, if they are greater than or equal to
- *   `beta.2`. So, `1.2.3-beta.4` would be allowed, but `1.2.4-beta.2` would not,
- *   because it is a prerelease of a different `[major, minor, patch]` tuple.
- * - `^0.0.3-beta` := `>=0.0.3-beta <0.0.4` Note that prereleases in the `0.0.3`
- *   version _only_ will be allowed, if they are greater than or equal to `beta`.
- *   So, `0.0.3-pr.2` would be allowed.
- *
- * When parsing caret ranges, a missing `patch` value desugars to the number `0`,
- * but will allow flexibility within that value, even if the major and minor
- * versions are both `0`.
- *
- * - `^1.2.x` := `>=1.2.0 <2.0.0`
- * - `^0.0.x` := `>=0.0.0 <0.1.0`
- * - `^0.0` := `>=0.0.0 <0.1.0`
- *
- * A missing `minor` and `patch` values will desugar to zero, but also allow
- * flexibility within those values, even if the major version is zero.
- *
- * - `^1.x` := `>=1.0.0 <2.0.0`
- * - `^0.x` := `>=0.0.0 <1.0.0`
- *
- * ### Range Grammar
- *
- * Putting all this together, here is a Backus-Naur grammar for ranges, for the
- * benefit of parser authors:
- *
- * ```bnf
- * range-set  ::= range ( logical-or range ) *
- * logical-or ::= ( " " ) * "||" ( " " ) *
- * range      ::= hyphen | simple ( " " simple ) * | ""
- * hyphen     ::= partial " - " partial
- * simple     ::= primitive | partial | tilde | caret
- * primitive  ::= ( "<" | ">" | ">=" | "<=" | "=" ) partial
- * partial    ::= xr ( "." xr ( "." xr qualifier ? )? )?
- * xr         ::= "x" | "X" | "*" | nr
- * nr         ::= "0" | ["1"-"9"] ( ["0"-"9"] ) *
- * tilde      ::= "~" partial
- * caret      ::= "^" partial
- * qualifier  ::= ( "-" pre )? ( "+" build )?
- * pre        ::= parts
- * build      ::= parts
- * parts      ::= part ( "." part ) *
- * part       ::= nr | [-0-9A-Za-z]+
- * ```
- *
- * Note that, since ranges may be non-contiguous, a version might not be greater
- * than a range, less than a range, _or_ satisfy a range! For example, the range
- * `1.2 <1.2.9 || >2.0.0` would have a hole from `1.2.9` until `2.0.0`, so the
- * version `1.2.10` would not be greater than the range (because `2.0.1` satisfies,
- * which is higher), nor less than the range (since `1.2.8` satisfies, which is
- * lower), and it also does not satisfy the range.
- *
- * If you want to know if a version satisfies or does not satisfy a range, use the
- * {@linkcode satisfies} function.
- *
- * @module
- */ 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-//# sourceMappingURL=mod.js.map
 ;// CONCATENATED MODULE: ./src/index.js
+
 
 
 
@@ -127108,13 +125035,9 @@ async function fileExists(p) {
   }
 }
 
-
-
 function versionLessThan(curVer, minVer) {
   try {
-    const cur = std_semver_parse_parse(curVer);
-    const min = std_semver_parse_parse(minVer);
-    return less_than_lessThan(cur, min);
+    return node_modules_semver.lt(curVer, minVer);
   } catch {
     return false;
   }
@@ -127122,24 +125045,41 @@ function versionLessThan(curVer, minVer) {
 
 function detectPlatformAndArch() {
   const platformMap = {
-    win32: "windows",
-    darwin: "macos",
-    linux: "linux",
+    android: "android",
     freebsd: "freebsd",
+    sunos: "illumos",
+    linux: "linux",
+    darwin: "macos",
+    netbsd: "netbsd",
+    openbsd: "openbsd",
+    win32: "windows",
   };
   const archMap = {
-    x64: "x86_64",
-    arm64: "aarch64",
-    ia32: "x86",
     arm: "arm",
+    arm64: "aarch64",
+    loong64: "loongarch64",
+    mips: "mips",
+    mipsel: "mipsel",
+    mips64: "mips64",
+    mips64el: "mips64el",
+    ppc64: "powerpc64",
+    riscv64: "riscv64",
+    s390x: "s390x",
+    ia32: "x86",
+    x64: "x86_64",
   };
 
-  let platform = platformMap[external_node_os_namespaceObject.platform()];
+  const platform = platformMap[external_node_os_namespaceObject.platform()];
   let arch = archMap[external_node_os_namespaceObject.arch()];
 
   if (!platform || !arch) {
     throw new Error(`Unsupported platform: ${external_node_os_namespaceObject.platform()} ${external_node_os_namespaceObject.arch()}`);
   }
+
+  if (arch === "powerpc64" && external_node_os_namespaceObject.endianness() === "LE") {
+    arch = "powerpc64le";
+  }
+
   return { platform, arch };
 }
 
@@ -127159,20 +125099,11 @@ async function resolveVersion(versionInput) {
     try {
       if (await fileExists("build.zig.zon")) {
         const zonText = await promises_namespaceObject.readFile("build.zig.zon", "utf8");
-        const parsed = parse_parse(zonText);
-        let zonVersion =
+        const parsed = parse_parse(zonText, { enumLiteral: "string" });
+        const zonVersion =
           parsed.mach_zig_version ||
-          parsed.machZigVersion ||
-          parsed.minimum_zig_version ||
-          parsed.minimumZigVersion;
+          parsed.minimum_zig_version;
         if (zonVersion) {
-          if (
-            zonVersion &&
-            typeof zonVersion === "object" &&
-            "value" in zonVersion
-          ) {
-            zonVersion = zonVersion.value;
-          }
           raw = String(zonVersion);
           info(`Resolved version '${raw}' from build.zig.zon`);
         }
@@ -127190,7 +125121,6 @@ async function resolveVersion(versionInput) {
     const index = await fetchJson(VERSIONS_JSON);
     return {
       version: "master",
-      url: null,
       resolvedVersion: index.master.version,
       index,
     };
@@ -127212,7 +125142,6 @@ async function resolveVersion(versionInput) {
     const latestVersion = versions[0];
     return {
       version: latestVersion,
-      url: null,
       resolvedVersion: latestVersion,
       index,
     };
@@ -127226,25 +125155,22 @@ async function resolveVersion(versionInput) {
     const resolved = machIndex[raw].version;
     return {
       version: resolved,
-      url: null,
       resolvedVersion: resolved,
       index: null,
     };
   }
 
-  return { version: raw, url: null, resolvedVersion: raw, index: null };
+  return { version: raw, resolvedVersion: raw, index: null };
 }
 
 function getTarballFilename(version, arch, platform) {
   const ext = platform === "windows" ? "zip" : "tar.xz";
 
-  // Before 0.15.1, Zig used 'armv7a' as the arch name for ARM binaries
   let displayArch = arch;
   if (arch === "arm" && versionLessThan(version, "0.15.1")) {
     displayArch = "armv7a";
   }
 
-  // Before 0.14.1, Zig tarballs were named like 'zig-linux-x86_64-0.14.0' (reversed arch and OS)
   let name;
   if (
     versionLessThan(version, "0.15.0-dev.631+9a3540d61") &&
@@ -127305,7 +125231,6 @@ async function getMirrors() {
     ];
   }
 
-  // Shuffle mirrors to distribute load
   return mirrors
     .map((m) => [m, Math.random()])
     .sort((a, b) => a[1] - b[1])
@@ -127337,7 +125262,6 @@ async function downloadFromMirror(mirror, tarballFilename) {
     throw new Error(`Signature verification failed for ${url}`);
   }
 
-  // Parse the trusted comment to validate the tarball name.
   const match = /^timestamp:\d+\s+file:([^\s]+)\s+hashed$/.exec(
     signature.trusted_comment.toString(),
   );
@@ -127361,7 +125285,6 @@ async function downloadTarball(resolvedVersion, arch, platform) {
     }
   }
 
-  // Canonical fallback
   const canonicalBase = resolvedVersion.includes("-dev")
     ? CANONICAL_DEV
     : `${CANONICAL_RELEASE}/${resolvedVersion}`;
@@ -127416,30 +125339,16 @@ async function main() {
     const { version, resolvedVersion, index } =
       await resolveVersion(versionInput);
 
-    let url = null;
+    const tarballFilename = getTarballFilename(resolvedVersion, arch, platform);
+    let url;
     const key = `${arch}-${platform}`;
     if (index && index[version] && index[version][key]) {
       url = index[version][key].tarball;
     } else {
-      url = buildCanonicalUrl(resolvedVersion, arch, platform);
-    }
-
-    function buildCanonicalUrl(v, a, p) {
-      const ext = p === "windows" ? "zip" : "tar.xz";
-      let displayA = a;
-      if (a === "arm" && versionLessThan(v, "0.15.1")) {
-        displayA = "armv7a";
-      }
-      let name;
-      if (
-        versionLessThan(v, "0.15.0-dev.631+9a3540d61") &&
-        versionLessThan(v, "0.14.1")
-      ) {
-        name = `zig-${p}-${displayA}-${v}`;
-      } else {
-        name = `zig-${displayA}-${p}-${v}`;
-      }
-      return `${resolvedVersion.includes("-dev") ? CANONICAL_DEV : `${CANONICAL_RELEASE}/${v}`}/${name}.${ext}`;
+      const base = resolvedVersion.includes("-dev")
+        ? CANONICAL_DEV
+        : `${CANONICAL_RELEASE}/${resolvedVersion}`;
+      url = `${base}/${tarballFilename}`;
     }
 
     const installDir = external_node_path_namespaceObject.join(external_node_os_namespaceObject.homedir(), ".zig");
@@ -127459,7 +125368,6 @@ async function main() {
       );
       const hitKey = await restoreCache([installDir], toolchainCacheKey);
       if (hitKey) {
-        // Double check marker file exists and matches
         const markerPath = external_node_path_namespaceObject.join(installDir, ".setup-zig-toolchain-marker");
         if (await fileExists(markerPath)) {
           const markerContent = await promises_namespaceObject.readFile(markerPath, "utf8");
@@ -127524,7 +125432,6 @@ async function main() {
 
       await promises_namespaceObject.rm(tempExtractParent, { recursive: true, force: true });
 
-      // Write marker file
       const markerPath = external_node_path_namespaceObject.join(installDir, ".setup-zig-toolchain-marker");
       await promises_namespaceObject.writeFile(markerPath, `${resolvedVersion}\n${url}\n`, "utf8");
 
@@ -127540,24 +125447,20 @@ async function main() {
       }
     }
 
-    // Add binary to PATH
     addPath(installDir);
 
-    // Resolve binary path and verify execution
     const binaryName = platform === "windows" ? "zig.exe" : "zig";
     const zigBinaryPath = external_node_path_namespaceObject.join(installDir, binaryName);
     if (!(await fileExists(zigBinaryPath))) {
       throw new Error(`Zig binary not found at ${zigBinaryPath}`);
     }
 
-    // Get verified version
     const { stdout } = await getExecOutput(`"${zigBinaryPath}"`, [
       "version",
     ]);
     const zigVersion = stdout.trim();
     info(`Verified Zig installation: version ${zigVersion}`);
 
-    // Set up build cache
     if (useCache) {
       const runnerOs =
         { linux: "Linux", macos: "macOS", windows: "Windows" }[platform] ||
@@ -127588,7 +125491,6 @@ async function main() {
 
       const buildCachePaths = [globalCacheDir, ...additionalCachePaths];
 
-      // Ensure cache directories exist
       await promises_namespaceObject.mkdir(external_node_path_namespaceObject.join(globalCacheDir, "tmp"), { recursive: true });
       await promises_namespaceObject.mkdir(external_node_path_namespaceObject.join(globalCacheDir, "p"), { recursive: true });
       for (const p of additionalCachePaths) {
@@ -127614,6 +125516,7 @@ async function main() {
       saveState("build-cache-key", buildCacheKey);
       saveState("build-cache-paths", JSON.stringify(buildCachePaths));
       saveState("restored-cache-key", restoredKey || "");
+      saveState("global-cache-dir", globalCacheDir);
     }
   } catch (err) {
     setFailed(err.message);
