@@ -4,9 +4,7 @@
   "description": "Install and cache a verified Zig toolchain in GitHub Actions",
   "main": "index.js",
   "scripts": {
-    "build": "pnpm run pack:zon && pnpm run bundle",
-    "bundle": "ncc build src/index.js -o dist --minify --no-cache && ncc build src/post.js -o dist/post --minify --no-cache",
-    "pack:zon": "deno task --cwd modules/zon-ts pack",
+    "build": "deno task --cwd modules/zon-ts pack && ncc build src/index.js -o dist --minify && ncc build src/post.js -o dist/post --minify",
     "test": "node --test test/*.test.js && deno task --cwd modules/zon-ts test",
     "check": "node --check src/index.js && node --check src/post.js && deno check modules/zon-ts/src/mod.ts && deno lint modules/zon-ts"
   },
@@ -21,6 +19,7 @@
     "@actions/exec": "^3.0.0",
     "@actions/glob": "^0.7.0",
     "@actions/tool-cache": "^4.0.0",
+    "@jassielof/zon": "link:modules\\zon-ts\\node",
     "semver": "^7.8.5"
   },
   "devDependencies": {

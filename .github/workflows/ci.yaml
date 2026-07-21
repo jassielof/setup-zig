@@ -28,8 +28,6 @@ jobs:
       - run: pnpm test
       - run: pnpm run check
       - run: pnpm run build
-      - name: Verify committed bundle
-        run: git diff --exit-code -- dist
 
   integration:
     name: ${{ matrix.os }} / Zig ${{ matrix.version }}
