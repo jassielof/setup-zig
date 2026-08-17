@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  assertMinimumVersion,
   buildCacheKey,
   getTarballFilename,
   latestStableVersion,
@@ -34,6 +35,14 @@ test("validates release and development versions", () => {
   assert.throws(
     () => validateResolvedVersion("../../zig"),
     /Invalid Zig version/,
+  );
+});
+
+test("enforces an optional resolved-version floor", () => {
+  assert.doesNotThrow(() => assertMinimumVersion("0.16.0", "0.15.2"));
+  assert.throws(
+    () => assertMinimumVersion("0.15.2", "0.16.0"),
+    /older than the required minimum/,
   );
 });
 

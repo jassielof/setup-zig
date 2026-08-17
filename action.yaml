@@ -16,6 +16,9 @@ inputs:
   version-file:
     description: ZON manifest used for automatic version detection.
     default: build.zig.zon
+  minimum-version:
+    description: Reject a resolved Zig version older than this release or full development version.
+    required: false
   mirror:
     description: >-
       HTTPS Zig community mirror override, for example

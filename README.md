@@ -42,6 +42,7 @@ For a matrix whose build settings are not represented by `build.zig` or
 | --- | --- | --- |
 | `version` | manifest or `latest` | A release, full development version, `latest`, `master`, or Mach nominated version. |
 | `version-file` | `build.zig.zon` | Manifest used for automatic version detection. |
+| `minimum-version` | empty | Reject a resolved version older than this release or full development version. |
 | `mirror` | community mirror list | An HTTPS mirror override. When set, no other host is tried. |
 | `cache` | `true` | Cache the toolchain and Zig build data. |
 | `cache-toolchain` | `true` | Cache the extracted toolchain. Has no effect when `cache` is false. |
@@ -117,14 +118,19 @@ To disable caching entirely:
 
 By default, the action fetches Zig's current
 [community mirror list](https://ziglang.org/download/community-mirrors.txt),
-tries mirrors in randomized order, and uses ziglang.org only if every mirror
-fails. A bundled copy of the list covers outages of ziglang.org.
+tries up to three mirrors in randomized order, and then falls back to
+ziglang.org. A bundled copy of the list covers outages of ziglang.org.
 
 Every downloaded archive is verified against the Zig Software Foundation's
 minisign public key. The signed filename is checked as well, which prevents a
 mirror from substituting a different signed Zig archive. See Zig's
 [community mirror guidance](https://ziglang.org/download/community-mirrors/)
 for the security requirements.
+
+When the action resolves `latest` or `master`, it also checks the archive's
+SHA-256 against Zig's download index. Pin `version` for reproducible builds;
+use `minimum-version` when an automatically resolved version must not fall
+below a compatibility or security floor.
 
 ## Development
 

@@ -21,6 +21,15 @@ export function validateResolvedVersion(version) {
   return version;
 }
 
+export function assertMinimumVersion(version, minimumVersion) {
+  validateResolvedVersion(minimumVersion);
+  if (versionLessThan(version, minimumVersion)) {
+    throw new Error(
+      `Resolved Zig version '${version}' is older than the required minimum '${minimumVersion}'`,
+    );
+  }
+}
+
 export function latestStableVersion(index) {
   const versions = Object.keys(index)
     .filter((version) =>
@@ -101,7 +110,7 @@ export function safeKeySegment(value, fallback = "default") {
 }
 
 export function toolchainCacheKey(platform, arch, version) {
-  return `setup-zig-toolchain-v2-${safeKeySegment(platform)}-${
+  return `setup-zig-toolchain-v3-${safeKeySegment(platform)}-${
     safeKeySegment(arch)
   }-${safeKeySegment(version)}`;
 }

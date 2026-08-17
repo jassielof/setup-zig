@@ -8,7 +8,8 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function pathSize(root, seen) {
+async function pathSize(root, seen, limit, total) {
+  if (total.value > limit) return;
   let stat;
   try {
     stat = await fs.lstat(root);
@@ -18,27 +19,32 @@ async function pathSize(root, seen) {
   const identity = process.platform === "win32"
     ? path.resolve(root).toLowerCase()
     : path.resolve(root);
-  if (seen.has(identity)) return 0;
+  if (seen.has(identity)) return;
   seen.add(identity);
-  if (stat.isSymbolicLink()) return 0;
-  if (stat.isFile()) return stat.size;
-  if (!stat.isDirectory()) return 0;
-  let total = 0;
-  for (const entry of await fs.readdir(root)) {
-    total += await pathSize(path.join(root, entry), seen);
+  if (stat.isSymbolicLink()) return;
+  if (stat.isFile()) {
+    total.value += stat.size;
+    return;
   }
-  return total;
+  if (!stat.isDirectory()) return;
+  for (const entry of await fs.readdir(root)) {
+    await pathSize(path.join(root, entry), seen, limit, total);
+    if (total.value > limit) return;
+  }
 }
 
-async function cacheSize(patterns) {
+async function cacheSize(patterns, limit) {
   const globber = await glob.create(patterns.join("\n"), {
     followSymbolicLinks: false,
   });
   const matches = await globber.glob();
   const seen = new Set();
-  let total = 0;
-  for (const match of matches) total += await pathSize(match, seen);
-  return total;
+  const total = { value: 0 };
+  for (const match of matches) {
+    await pathSize(match, seen, limit, total);
+    if (total.value > limit) break;
+  }
+  return total.value;
 }
 
 async function main() {
@@ -58,10 +64,13 @@ async function main() {
     const rawLimit = core.getInput("cache-size-limit").trim();
     const limitMiB = rawLimit === "" ? 0 : Number(rawLimit);
     if (!Number.isFinite(limitMiB) || limitMiB < 0) {
-      core.warning(`Ignoring invalid cache-size-limit '${rawLimit}'`);
+      core.warning(
+        `Skipping Zig build cache save: invalid cache-size-limit '${rawLimit}'`,
+      );
+      return;
     } else if (limitMiB > 0) {
-      const size = await cacheSize(paths);
       const limit = limitMiB * 1024 * 1024;
+      const size = await cacheSize(paths, limit);
       if (size > limit) {
         core.warning(
           `Skipping Zig build cache save: ${

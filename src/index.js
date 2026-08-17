@@ -1,6 +1,10 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import crypto from "node:crypto";
 import * as core from "@actions/core";
 import * as tc from "@actions/tool-cache";
 import * as cache from "@actions/cache";
@@ -9,6 +13,7 @@ import * as glob from "@actions/glob";
 import { parse } from "@jassielof/zon";
 import { parseKey, parseSignature, verifySignature } from "./minisign.js";
 import {
+  assertMinimumVersion,
   buildCacheKey,
   getTarballFilename,
   hashDependencyFiles,
@@ -29,6 +34,9 @@ const MIRRORS_URL = `${ZIGLANG_ORG}/download/community-mirrors.txt`;
 const MINISIGN_KEY = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U";
 const SOURCE_QUERY = "github-jassielof-setup-zig";
 const FETCH_TIMEOUT_MS = 30_000;
+const ARCHIVE_DOWNLOAD_TIMEOUT_MS = 90_000;
+const MAX_MIRROR_ATTEMPTS = 3;
+const SHA256_RE = /^[0-9a-f]{64}$/i;
 const FALLBACK_MIRRORS = [
   "https://pkg.hexops.org/zig",
   "https://zigmirror.hryx.net/zig",
@@ -95,14 +103,20 @@ function detectPlatformAndArch() {
   return { platform, arch };
 }
 
-async function fetchResponse(url) {
+async function fetchResponse(url, timeoutMs = FETCH_TIMEOUT_MS) {
   const response = await fetch(url, {
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText} from ${url}`);
   }
   return response;
+}
+
+async function sha256File(file) {
+  const hash = crypto.createHash("sha256");
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest("hex");
 }
 
 async function fetchJson(url) {
@@ -176,29 +190,56 @@ function withSource(url) {
   return parsed.href;
 }
 
-async function downloadFromMirror(mirror, filename) {
+async function downloadFromMirror(mirror, filename, expectedSha256) {
   const archiveUrl = `${mirror}/${filename}`;
   core.info(`Downloading ${archiveUrl}`);
-  const archivePath = await tc.downloadTool(withSource(archiveUrl));
-  const signature = Buffer.from(
-    await (await fetchResponse(withSource(`${archiveUrl}.minisig`)))
-      .arrayBuffer(),
+  const tempRoot = process.env.RUNNER_TEMP || os.tmpdir();
+  const archiveDirectory = await fs.mkdtemp(
+    path.join(tempRoot, "setup-zig-download-"),
   );
-  const archive = await fs.readFile(archivePath);
-  const publicKey = await parseKey(MINISIGN_KEY);
-  const parsedSignature = parseSignature(signature);
-  if (!(await verifySignature(publicKey, parsedSignature, archive))) {
-    throw new Error(`Minisign verification failed for ${archiveUrl}`);
-  }
-  const match = /^timestamp:\d+\s+file:([^\s]+)\s+hashed$/.exec(
-    parsedSignature.trusted_comment.toString(),
-  );
-  if (!match || match[1] !== filename) {
-    throw new Error(
-      `The signed filename did not match '${filename}' for ${archiveUrl}`,
+  const archivePath = path.join(archiveDirectory, filename);
+  try {
+    const response = await fetchResponse(
+      withSource(archiveUrl),
+      ARCHIVE_DOWNLOAD_TIMEOUT_MS,
     );
+    if (!response.body) throw new Error(`No response body from ${archiveUrl}`);
+    await pipeline(
+      Readable.fromWeb(response.body),
+      createWriteStream(archivePath),
+    );
+
+    const signature = Buffer.from(
+      await (await fetchResponse(withSource(`${archiveUrl}.minisig`)))
+        .arrayBuffer(),
+    );
+    const archive = await fs.readFile(archivePath);
+    if (expectedSha256) {
+      const actualSha256 = crypto.createHash("sha256").update(archive).digest(
+        "hex",
+      );
+      if (actualSha256 !== expectedSha256) {
+        throw new Error(`SHA-256 verification failed for ${archiveUrl}`);
+      }
+    }
+    const publicKey = await parseKey(MINISIGN_KEY);
+    const parsedSignature = parseSignature(signature);
+    if (!(await verifySignature(publicKey, parsedSignature, archive))) {
+      throw new Error(`Minisign verification failed for ${archiveUrl}`);
+    }
+    const match = /^timestamp:\d+\s+file:([^\s]+)\s+hashed$/.exec(
+      parsedSignature.trusted_comment.toString(),
+    );
+    if (!match || match[1] !== filename) {
+      throw new Error(
+        `The signed filename did not match '${filename}' for ${archiveUrl}`,
+      );
+    }
+    return { archivePath, archiveDirectory };
+  } catch (error) {
+    await fs.rm(archiveDirectory, { recursive: true, force: true });
+    throw error;
   }
-  return archivePath;
 }
 
 async function communityMirrors() {
@@ -218,16 +259,24 @@ async function communityMirrors() {
   }
 }
 
-async function downloadArchive(version, filename) {
+async function downloadArchive(version, filename, expectedSha256) {
   const override = core.getInput("mirror").trim();
   if (override) {
-    return await downloadFromMirror(validateMirrorUrl(override), filename);
+    return await downloadFromMirror(
+      validateMirrorUrl(override),
+      filename,
+      expectedSha256,
+    );
   }
 
   const errors = [];
-  for (const mirror of shuffle(await communityMirrors())) {
+  const mirrors = shuffle(await communityMirrors()).slice(
+    0,
+    MAX_MIRROR_ATTEMPTS,
+  );
+  for (const mirror of mirrors) {
     try {
-      return await downloadFromMirror(mirror, filename);
+      return await downloadFromMirror(mirror, filename, expectedSha256);
     } catch (error) {
       errors.push(`${mirror}: ${errorMessage(error)}`);
       core.info(`Mirror failed (${mirror}): ${errorMessage(error)}`);
@@ -239,7 +288,7 @@ async function downloadArchive(version, filename) {
   core.warning(
     `All ${errors.length} community mirrors failed; trying ziglang.org`,
   );
-  return await downloadFromMirror(official, filename);
+  return await downloadFromMirror(official, filename, expectedSha256);
 }
 
 async function findExtractedToolchain(extractRoot, binaryName) {
@@ -254,19 +303,27 @@ async function findExtractedToolchain(extractRoot, binaryName) {
   throw new Error(`The Zig archive did not contain ${binaryName}`);
 }
 
-async function markerMatches(installDir, expected) {
+async function markerMatches(installDir, expected, binaryName) {
   try {
-    return await fs.readFile(
+    const marker = JSON.parse(await fs.readFile(
       path.join(installDir, ".setup-zig.json"),
       "utf8",
-    ) === JSON.stringify(expected);
+    ));
+    if (
+      !Object.entries(expected).every(([key, value]) => marker[key] === value) ||
+      typeof marker.binary_sha256 !== "string" ||
+      !SHA256_RE.test(marker.binary_sha256)
+    ) return false;
+    return marker.binary_sha256 === await sha256File(
+      path.join(installDir, binaryName),
+    );
   } catch {
     return false;
   }
 }
 
 async function installToolchain(
-  { platform, arch, version, filename, useCache },
+  { platform, arch, version, filename, useCache, expectedSha256 },
 ) {
   const binaryName = platform === "windows" ? "zig.exe" : "zig";
   const tempRoot = process.env.RUNNER_TEMP || os.tmpdir();
@@ -278,12 +335,16 @@ async function installToolchain(
   );
   const marker = { version, platform, arch, filename };
   const cacheKey = toolchainCacheKey(platform, arch, version);
-  let cacheHit = await markerMatches(installDir, marker);
+  let cacheHit = false;
 
-  if (!cacheHit && useCache) {
+  if (useCache) {
     try {
       const restored = await cache.restoreCache([installDir], cacheKey);
-      cacheHit = Boolean(restored) && await markerMatches(installDir, marker);
+      cacheHit = Boolean(restored) && await markerMatches(
+        installDir,
+        marker,
+        binaryName,
+      );
       if (restored && !cacheHit) {
         core.warning("Ignoring an invalid toolchain cache entry");
       }
@@ -296,7 +357,11 @@ async function installToolchain(
 
   if (!cacheHit) {
     await fs.rm(installDir, { recursive: true, force: true });
-    const archivePath = await downloadArchive(version, filename);
+    const { archivePath, archiveDirectory } = await downloadArchive(
+      version,
+      filename,
+      expectedSha256,
+    );
     const extractRoot = await fs.mkdtemp(
       path.join(tempRoot, "setup-zig-extract-"),
     );
@@ -309,11 +374,15 @@ async function installToolchain(
       await fs.rename(extracted, installDir);
       await fs.writeFile(
         path.join(installDir, ".setup-zig.json"),
-        JSON.stringify(marker),
+        JSON.stringify({
+          ...marker,
+          binary_sha256: await sha256File(path.join(installDir, binaryName)),
+        }),
         "utf8",
       );
     } finally {
       await fs.rm(extractRoot, { recursive: true, force: true });
+      await fs.rm(archiveDirectory, { recursive: true, force: true });
     }
     if (useCache) {
       try {
@@ -397,17 +466,24 @@ async function main() {
     const { requested, version, index } = await resolveVersion(
       core.getInput("version"),
     );
+    const minimumVersion = core.getInput("minimum-version").trim();
+    if (minimumVersion) assertMinimumVersion(version, minimumVersion);
     const filename = getTarballFilename(version, arch, platform);
     const metadataKey = `${arch}-${platform}`;
-    if (index?.[requested]?.[metadataKey]?.tarball) {
+    const metadata = index?.[requested]?.[metadataKey];
+    if (metadata?.tarball) {
       const indexedFilename = path.basename(
-        new URL(index[requested][metadataKey].tarball).pathname,
+        new URL(metadata.tarball).pathname,
       );
       if (indexedFilename !== filename) {
         throw new Error(
           `Archive name mismatch in Zig's download index: ${indexedFilename}`,
         );
       }
+    }
+    const expectedSha256 = metadata?.shasum;
+    if (expectedSha256 && !SHA256_RE.test(expectedSha256)) {
+      throw new Error("Zig's download index contained an invalid SHA-256");
     }
 
     const useCache = core.getBooleanInput("cache");
@@ -419,6 +495,7 @@ async function main() {
       version,
       filename,
       useCache: useToolchainCache,
+      expectedSha256,
     });
     core.addPath(installed.installDir);
 
