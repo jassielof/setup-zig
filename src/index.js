@@ -10,7 +10,7 @@ import * as tc from "@actions/tool-cache";
 import * as cache from "@actions/cache";
 import * as exec from "@actions/exec";
 import * as glob from "@actions/glob";
-import { parse } from "@jassielof/zon";
+import { parse } from "@jassiel/zon";
 import { parseKey, parseSignature, verifySignature } from "./minisign.js";
 import {
   assertMinimumVersion,
