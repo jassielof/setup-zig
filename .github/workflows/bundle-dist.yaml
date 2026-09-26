@@ -28,6 +28,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
+      - run: pnpm run bundle:check
       - name: Commit generated bundles
         shell: bash
         run: |

@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "tsx esbuild.ts",
+    "bundle:check": "node dist/post.js",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

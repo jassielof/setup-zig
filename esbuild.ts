@@ -7,7 +7,7 @@ const shared: BuildOptions = {
   target: "node24",
   format: "esm",
   banner: {
-    js: 'import { createRequire } from "node:module";',
+    js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);',
   },
 };
 
