@@ -38,18 +38,18 @@ For a matrix whose build settings are not represented by `build.zig` or
 
 ## Inputs
 
-| Input | Default | Description |
-| --- | --- | --- |
-| `version` | manifest or `latest` | A release, full development version, `latest`, `master`, or Mach nominated version. |
-| `version-file` | `build.zig.zon` | Manifest used for automatic version detection. |
-| `minimum-version` | empty | Reject a resolved version older than this release or full development version. |
-| `mirror` | community mirror list | An HTTPS mirror override. When set, no other host is tried. |
-| `cache` | `true` | Cache the toolchain and Zig build data. |
-| `cache-toolchain` | `true` | Cache the extracted toolchain. Has no effect when `cache` is false. |
-| `cache-key` | empty | Extra cache discriminator for target, optimization mode, or other build settings. |
-| `cache-dependency-path` | `build.zig` and `build.zig.zon` | Newline-separated globs hashed into the build-cache key. |
-| `cache-path` | empty | Additional newline-separated cache paths or globs. |
-| `cache-size-limit` | `2048` | Skip the build-cache upload above this size in MiB. Set to `0` for no limit. |
+| Input                   | Default                         | Description                                                                         |
+| ----------------------- | ------------------------------- | ----------------------------------------------------------------------------------- |
+| `version`               | manifest or `latest`            | A release, full development version, `latest`, `master`, or Mach nominated version. |
+| `version-file`          | `build.zig.zon`                 | Manifest used for automatic version detection.                                      |
+| `minimum-version`       | empty                           | Reject a resolved version older than this release or full development version.      |
+| `mirror`                | community mirror list           | An HTTPS mirror override. When set, no other host is tried.                         |
+| `cache`                 | `true`                          | Cache the toolchain and Zig build data.                                             |
+| `cache-toolchain`       | `true`                          | Cache the extracted toolchain. Has no effect when `cache` is false.                 |
+| `cache-key`             | empty                           | Extra cache discriminator for target, optimization mode, or other build settings.   |
+| `cache-dependency-path` | `build.zig` and `build.zig.zon` | Newline-separated globs hashed into the build-cache key.                            |
+| `cache-path`            | empty                           | Additional newline-separated cache paths or globs.                                  |
+| `cache-size-limit`      | `2048`                          | Skip the build-cache upload above this size in MiB. Set to `0` for no limit.        |
 
 The action exposes `version`, `path`, `cache-hit`, and `toolchain-cache-hit`
 outputs.
@@ -134,8 +134,8 @@ below a compatibility or security floor.
 
 ## Development
 
-The committed `dist/` files are produced with Vercel ncc because JavaScript
-actions run from checked-in bundled code.
+The committed `dist/` files are produced with esbuild because JavaScript actions
+run from checked-in bundled code.
 
 ```sh
 pnpm test
@@ -143,9 +143,10 @@ pnpm run check
 pnpm run build
 ```
 
-`modules/zon-ts` contains the Deno ZON parser used to read `build.zig.zon` and
-`zig env`. The build first packages it for Node, then bundles the main and post
-action entry points.
+`pnpm run check` runs TypeScript's strict type checker, type-aware ESLint rules,
+and Prettier's formatting check. Use `pnpm run format` to apply formatting. The
+build bundles the TypeScript main and post action entry points as Node.js ES
+modules.
 
 ## License
 

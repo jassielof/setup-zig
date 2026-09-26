@@ -4,21 +4,31 @@ import * as core from "@actions/core";
 import * as cache from "@actions/cache";
 import * as glob from "@actions/glob";
 
-function errorMessage(error) {
+interface RunningTotal {
+  value: number;
+}
+
+function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function pathSize(root, seen, limit, total) {
+async function pathSize(
+  root: string,
+  seen: Set<string>,
+  limit: number,
+  total: RunningTotal,
+): Promise<void> {
   if (total.value > limit) return;
   let stat;
   try {
     stat = await fs.lstat(root);
   } catch {
-    return 0;
+    return;
   }
-  const identity = process.platform === "win32"
-    ? path.resolve(root).toLowerCase()
-    : path.resolve(root);
+  const identity =
+    process.platform === "win32"
+      ? path.resolve(root).toLowerCase()
+      : path.resolve(root);
   if (seen.has(identity)) return;
   seen.add(identity);
   if (stat.isSymbolicLink()) return;
@@ -33,12 +43,12 @@ async function pathSize(root, seen, limit, total) {
   }
 }
 
-async function cacheSize(patterns, limit) {
+async function cacheSize(patterns: string[], limit: number): Promise<number> {
   const globber = await glob.create(patterns.join("\n"), {
     followSymbolicLinks: false,
   });
   const matches = await globber.glob();
-  const seen = new Set();
+  const seen = new Set<string>();
   const total = { value: 0 };
   for (const match of matches) {
     await pathSize(match, seen, limit, total);
@@ -47,7 +57,7 @@ async function cacheSize(patterns, limit) {
   return total.value;
 }
 
-async function main() {
+async function main(): Promise<void> {
   const key = core.getState("build-cache-key");
   const restoredKey = core.getState("restored-cache-key");
   const pathsJson = core.getState("build-cache-paths");
@@ -60,7 +70,14 @@ async function main() {
   }
 
   try {
-    const paths = JSON.parse(pathsJson);
+    const parsedPaths: unknown = JSON.parse(pathsJson);
+    if (
+      !Array.isArray(parsedPaths) ||
+      !parsedPaths.every((item): item is string => typeof item === "string")
+    ) {
+      throw new Error("Saved build cache paths were invalid");
+    }
+    const paths = parsedPaths;
     const rawLimit = core.getInput("cache-size-limit").trim();
     const limitMiB = rawLimit === "" ? 0 : Number(rawLimit);
     if (!Number.isFinite(limitMiB) || limitMiB < 0) {
@@ -73,9 +90,9 @@ async function main() {
       const size = await cacheSize(paths, limit);
       if (size > limit) {
         core.warning(
-          `Skipping Zig build cache save: ${
-            (size / 1024 / 1024).toFixed(1)
-          } MiB exceeds the ${limitMiB} MiB limit`,
+          `Skipping Zig build cache save: ${(size / 1024 / 1024).toFixed(
+            1,
+          )} MiB exceeds the ${String(limitMiB)} MiB limit`,
         );
         return;
       }

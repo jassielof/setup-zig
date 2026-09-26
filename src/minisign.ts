@@ -1,11 +1,19 @@
 import crypto from "node:crypto";
 
-/**
- * Parses a minisign public key base64 string.
- * @param {string} keyStr
- * @returns {Promise<{id: Buffer, key: CryptoKey}>}
- */
-export async function parseKey(keyStr) {
+export interface MinisignPublicKey {
+  id: Buffer;
+  key: crypto.webcrypto.CryptoKey;
+}
+
+export interface MinisignSignature {
+  algorithm: Buffer;
+  key_id: Buffer;
+  signature: Buffer;
+  trusted_comment: Buffer;
+  global_signature: Buffer;
+}
+
+export async function parseKey(keyStr: string): Promise<MinisignPublicKey> {
   const keyInfo = Buffer.from(keyStr, "base64");
 
   if (
@@ -29,12 +37,7 @@ export async function parseKey(keyStr) {
   return { id, key: cryptoKey };
 }
 
-/**
- * Parses a minisign signature buffer.
- * @param {Buffer} sigBuf
- * @returns {{algorithm: Buffer, key_id: Buffer, signature: Buffer, trusted_comment: Buffer, global_signature: Buffer}}
- */
-export function parseSignature(sigBuf) {
+export function parseSignature(sigBuf: Buffer): MinisignSignature {
   const untrustedHeader = Buffer.from("untrusted comment: ");
   const trustedHeader = Buffer.from("trusted comment: ");
 
@@ -85,7 +88,9 @@ export function parseSignature(sigBuf) {
       "invalid minisign signature: missing newline after trusted comment",
     );
   }
-  const trustedComment = currentBuf.subarray(0, trustedCommentEnd).toString()
+  const trustedComment = currentBuf
+    .subarray(0, trustedCommentEnd)
+    .toString()
     .replace(/\r$/, "");
   const trustedCommentBuffer = Buffer.from(trustedComment);
   currentBuf = currentBuf.subarray(trustedCommentEnd + 1);
@@ -118,7 +123,11 @@ export function parseSignature(sigBuf) {
   };
 }
 
-function decodeBase64(value, expectedLength, label) {
+function decodeBase64(
+  value: string,
+  expectedLength: number,
+  label: string,
+): Buffer {
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) {
     throw new Error(`invalid minisign signature: malformed ${label}`);
   }
@@ -129,14 +138,11 @@ function decodeBase64(value, expectedLength, label) {
   return decoded;
 }
 
-/**
- * Verifies a file content against a parsed signature and public key.
- * @param {{id: Buffer, key: CryptoKey}} pubkey
- * @param {{algorithm: Buffer, key_id: Buffer, signature: Buffer, trusted_comment: Buffer, global_signature: Buffer}} signature
- * @param {Buffer} fileContent
- * @returns {Promise<boolean>}
- */
-export async function verifySignature(pubkey, signature, fileContent) {
+export async function verifySignature(
+  pubkey: MinisignPublicKey,
+  signature: MinisignSignature,
+  fileContent: Buffer,
+): Promise<boolean> {
   if (!signature.key_id.equals(pubkey.id)) {
     return false; // wrong key
   }
@@ -153,12 +159,12 @@ export async function verifySignature(pubkey, signature, fileContent) {
   }
 
   if (
-    !await crypto.subtle.verify(
+    !(await crypto.subtle.verify(
       "Ed25519",
       pubkey.key,
-      signature.signature,
-      signedContent,
-    )
+      Uint8Array.from(signature.signature),
+      Uint8Array.from(signedContent),
+    ))
   ) {
     return false; // signature verification failure
   }
@@ -168,12 +174,12 @@ export async function verifySignature(pubkey, signature, fileContent) {
     signature.trusted_comment,
   ]);
   if (
-    !await crypto.subtle.verify(
+    !(await crypto.subtle.verify(
       "Ed25519",
       pubkey.key,
-      signature.global_signature,
-      globalSignedContent,
-    )
+      Uint8Array.from(signature.global_signature),
+      Uint8Array.from(globalSignedContent),
+    ))
   ) {
     return false; // signature verification failure
   }

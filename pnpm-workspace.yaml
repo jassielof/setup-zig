@@ -1,2 +1,4 @@
+allowBuilds:
+  esbuild: true
 minimumReleaseAgeExclude:
-  - '@jsr/jassiel__zon@0.1.0'
+  - "@jsr/jassiel__zon@0.1.0"

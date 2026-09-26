@@ -14,7 +14,7 @@ import {
   versionLessThan,
 } from "../src/lib.js";
 
-test("selects the newest stable version", () => {
+await test("selects the newest stable version", () => {
   assert.equal(
     latestStableVersion({
       master: {},
@@ -26,7 +26,7 @@ test("selects the newest stable version", () => {
   );
 });
 
-test("validates release and development versions", () => {
+await test("validates release and development versions", () => {
   assert.equal(validateResolvedVersion("0.15.2"), "0.15.2");
   assert.equal(
     validateResolvedVersion("0.16.0-dev.1234+abcdef12"),
@@ -38,15 +38,16 @@ test("validates release and development versions", () => {
   );
 });
 
-test("enforces an optional resolved-version floor", () => {
-  assert.doesNotThrow(() => assertMinimumVersion("0.16.0", "0.15.2"));
-  assert.throws(
-    () => assertMinimumVersion("0.15.2", "0.16.0"),
-    /older than the required minimum/,
-  );
+await test("enforces an optional resolved-version floor", () => {
+  assert.doesNotThrow(() => {
+    assertMinimumVersion("0.16.0", "0.15.2");
+  });
+  assert.throws(() => {
+    assertMinimumVersion("0.15.2", "0.16.0");
+  }, /older than the required minimum/);
 });
 
-test("compares Zig versions and uses historical archive names", () => {
+await test("compares Zig versions and uses historical archive names", () => {
   assert.equal(versionLessThan("0.14.0", "0.14.1"), true);
   assert.equal(
     getTarballFilename("0.14.0", "x86_64", "linux"),
@@ -62,7 +63,7 @@ test("compares Zig versions and uses historical archive names", () => {
   );
 });
 
-test("accepts only safe community mirror URLs", () => {
+await test("accepts only safe community mirror URLs", () => {
   assert.equal(
     validateMirrorUrl("https://example.com/zig/"),
     "https://example.com/zig",
@@ -74,20 +75,20 @@ test("accepts only safe community mirror URLs", () => {
   );
   assert.deepEqual(
     parseMirrorList("https://a.example/zig\nhttps://b.example\n"),
-    [
-      "https://a.example/zig",
-      "https://b.example",
-    ],
+    ["https://a.example/zig", "https://b.example"],
   );
 });
 
-test("shuffle does not mutate its input", () => {
+await test("shuffle does not mutate its input", () => {
   const input = ["a", "b", "c"];
-  assert.deepEqual(shuffle(input, () => 0), ["b", "c", "a"]);
+  assert.deepEqual(
+    shuffle(input, () => 0),
+    ["b", "c", "a"],
+  );
   assert.deepEqual(input, ["a", "b", "c"]);
 });
 
-test("cache keys sanitize user-controlled text", () => {
+await test("cache keys sanitize user-controlled text", () => {
   assert.equal(safeKeySegment(" linux / release "), "linux-release");
   const result = buildCacheKey({
     platform: "linux",
