@@ -8,7 +8,6 @@
     "test": "node --test test/*.test.js",
     "check": "node --check src/index.js && node --check src/post.js"
   },
-  "keywords": [],
   "author": "Jassiel Ovando",
   "license": "MPL-2.0",
   "packageManager": "pnpm@11.8.0",
