@@ -8,7 +8,7 @@ export interface BuildCacheKeyOptions {
   platform: string;
   arch: string;
   version: string;
-  target: string;
+  runnerImage: string;
   userKey: string;
   dependencyHash: string;
 }
@@ -114,20 +114,6 @@ export function validateMirrorUrl(value: string): string {
   return url.href.replace(/\/$/, "");
 }
 
-export function shuffle<T>(
-  values: readonly T[],
-  random: () => number = Math.random,
-): T[] {
-  const result = [...values];
-  for (let index = result.length - 1; index > 0; index--) {
-    const other = Math.floor(random() * (index + 1));
-    const value = result[index] as T;
-    result[index] = result[other] as T;
-    result[other] = value;
-  }
-  return result;
-}
-
 export function safeKeySegment(value: string, fallback = "default"): string {
   const normalized = value
     .trim()
@@ -157,13 +143,13 @@ export function buildCacheKey({
   platform,
   arch,
   version,
-  target,
+  runnerImage,
   userKey,
   dependencyHash,
 }: BuildCacheKeyOptions): { key: string; restoreKeys: string[] } {
-  const prefix = `setup-zig-build-v4-${safeKeySegment(platform)}-${safeKeySegment(
+  const prefix = `setup-zig-build-v5-${safeKeySegment(platform)}-${safeKeySegment(
     arch,
-  )}-${safeKeySegment(version)}-${safeKeySegment(target, "unknown-target")}-${safeKeySegment(
+  )}-${safeKeySegment(version)}-${safeKeySegment(runnerImage, "unknown-image")}-${safeKeySegment(
     userKey,
   )}`;
   return { key: `${prefix}-${dependencyHash}`, restoreKeys: [`${prefix}-`] };

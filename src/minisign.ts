@@ -142,6 +142,7 @@ export async function verifySignature(
   pubkey: MinisignPublicKey,
   signature: MinisignSignature,
   fileContent: Buffer,
+  prehashedContent?: Buffer,
 ): Promise<boolean> {
   if (!signature.key_id.equals(pubkey.id)) {
     return false; // wrong key
@@ -149,9 +150,12 @@ export async function verifySignature(
 
   let signedContent;
   if (signature.algorithm.equals(Buffer.from("ED"))) {
-    const hash = crypto.createHash("blake2b512");
-    hash.update(fileContent);
-    signedContent = hash.digest();
+    if (prehashedContent) signedContent = prehashedContent;
+    else {
+      const hash = crypto.createHash("blake2b512");
+      hash.update(fileContent);
+      signedContent = hash.digest();
+    }
   } else if (signature.algorithm.equals(Buffer.from("Ed"))) {
     signedContent = fileContent;
   } else {

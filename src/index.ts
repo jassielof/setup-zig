@@ -1,16 +1,16 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { createReadStream, createWriteStream, existsSync } from "node:fs";
-import { Readable } from "node:stream";
+import { createWriteStream, existsSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { performance } from "node:perf_hooks";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
+import { promisify } from "node:util";
 import crypto from "node:crypto";
 import * as core from "@actions/core";
-import * as tc from "@actions/tool-cache";
-import * as cache from "@actions/cache";
-import * as exec from "@actions/exec";
-import * as glob from "@actions/glob";
+import type * as Cache from "@actions/cache";
 import { parse } from "@jassiel/zon";
 import { parseKey, parseSignature, verifySignature } from "./minisign.js";
 import {
@@ -22,7 +22,6 @@ import {
   lines,
   parseMirrorList,
   safeKeySegment,
-  shuffle,
   toolchainCacheKey,
   validateMirrorUrl,
   validateResolvedVersion,
@@ -38,6 +37,15 @@ const FETCH_TIMEOUT_MS = 30_000;
 const ARCHIVE_DOWNLOAD_TIMEOUT_MS = 90_000;
 const MAX_MIRROR_ATTEMPTS = 3;
 const SHA256_RE = /^[0-9a-f]{64}$/i;
+const execFileAsync = promisify(execFile);
+
+type CacheModule = typeof Cache;
+let cacheModulePromise: Promise<CacheModule> | undefined;
+
+function loadCache(): Promise<CacheModule> {
+  cacheModulePromise ??= import("@actions/cache");
+  return cacheModulePromise;
+}
 
 interface PlatformAndArch {
   platform: string;
@@ -71,22 +79,27 @@ interface InstallToolchainOptions extends PlatformAndArch {
   filename: string;
   useCache: boolean;
   expectedSha256: string | undefined;
+  officialUrl: string;
 }
 
 interface InstalledToolchain {
   installDir: string;
   binaryPath: string;
   cacheHit: boolean;
-}
-
-interface ZigEnvironment {
-  global_cache_dir: string;
-  target: string;
+  cacheKey: string;
+  source: "cache" | "download";
 }
 
 interface RestoreBuildCacheOptions extends PlatformAndArch {
   version: string;
-  zigEnvironment: ZigEnvironment;
+  runnerImage: string;
+}
+
+interface RestoredBuildCache {
+  anyHit: boolean;
+  exactHit: boolean;
+  key: string;
+  matchedKey: string;
 }
 
 function errorMessage(error: unknown): string {
@@ -142,14 +155,6 @@ async function fetchResponse(
     );
   }
   return response;
-}
-
-async function sha256File(file: string): Promise<string> {
-  const hash = crypto.createHash("sha256");
-  for await (const chunk of createReadStream(file) as AsyncIterable<Buffer>) {
-    hash.update(chunk);
-  }
-  return hash.digest("hex");
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -239,47 +244,62 @@ function withSource(url: string): string {
   return parsed.href;
 }
 
-async function downloadFromMirror(
-  mirror: string,
+async function downloadFromUrl(
+  archiveUrl: string,
   filename: string,
   expectedSha256?: string,
 ): Promise<DownloadedArchive> {
-  const archiveUrl = `${mirror}/${filename}`;
   core.info(`Downloading ${archiveUrl}`);
   const tempRoot = process.env.RUNNER_TEMP ?? os.tmpdir();
   const archiveDirectory = await fs.mkdtemp(
     path.join(tempRoot, "setup-zig-download-"),
   );
   const archivePath = path.join(archiveDirectory, filename);
+  let signaturePromise: Promise<Buffer> | undefined;
   try {
+    signaturePromise = fetchResponse(withSource(`${archiveUrl}.minisig`)).then(
+      async (response) => Buffer.from(await response.arrayBuffer()),
+    );
     const response = await fetchResponse(
       withSource(archiveUrl),
       ARCHIVE_DOWNLOAD_TIMEOUT_MS,
     );
     if (!response.body) throw new Error(`No response body from ${archiveUrl}`);
+    const sha256 = crypto.createHash("sha256");
+    const blake2b = crypto.createHash("blake2b512");
+    const hashStream = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        sha256.update(chunk);
+        blake2b.update(chunk);
+        callback(null, chunk);
+      },
+    });
     await pipeline(
       Readable.fromWeb(response.body as unknown as NodeReadableStream),
+      hashStream,
       createWriteStream(archivePath),
     );
 
-    const signature = Buffer.from(
-      await (
-        await fetchResponse(withSource(`${archiveUrl}.minisig`))
-      ).arrayBuffer(),
-    );
-    const archive = await fs.readFile(archivePath);
     if (expectedSha256) {
-      const actualSha256 = crypto
-        .createHash("sha256")
-        .update(archive)
-        .digest("hex");
+      const actualSha256 = sha256.digest("hex");
       if (actualSha256 !== expectedSha256) {
         throw new Error(`SHA-256 verification failed for ${archiveUrl}`);
       }
     }
+    const signature = await signaturePromise;
     const publicKey = await parseKey(MINISIGN_KEY);
     const parsedSignature = parseSignature(signature);
-    if (!(await verifySignature(publicKey, parsedSignature, archive))) {
+    const archive = parsedSignature.algorithm.equals(Buffer.from("Ed"))
+      ? await fs.readFile(archivePath)
+      : Buffer.alloc(0);
+    if (
+      !(await verifySignature(
+        publicKey,
+        parsedSignature,
+        archive,
+        blake2b.digest(),
+      ))
+    ) {
       throw new Error(`Minisign verification failed for ${archiveUrl}`);
     }
     const match = /^timestamp:\d+\s+file:([^\s]+)\s+hashed$/.exec(
@@ -292,9 +312,22 @@ async function downloadFromMirror(
     }
     return { archivePath, archiveDirectory };
   } catch (error) {
+    await signaturePromise?.catch(() => undefined);
     await fs.rm(archiveDirectory, { recursive: true, force: true });
     throw error;
   }
+}
+
+async function downloadFromMirror(
+  mirror: string,
+  filename: string,
+  expectedSha256?: string,
+): Promise<DownloadedArchive> {
+  return await downloadFromUrl(
+    `${mirror}/${filename}`,
+    filename,
+    expectedSha256,
+  );
 }
 
 async function communityMirrors(): Promise<string[]> {
@@ -315,7 +348,7 @@ async function communityMirrors(): Promise<string[]> {
 }
 
 async function downloadArchive(
-  version: string,
+  officialUrl: string,
   filename: string,
   expectedSha256?: string,
 ): Promise<DownloadedArchive> {
@@ -328,11 +361,8 @@ async function downloadArchive(
     );
   }
 
-  const errors = [];
-  const mirrors = shuffle(await communityMirrors()).slice(
-    0,
-    MAX_MIRROR_ATTEMPTS,
-  );
+  const errors: string[] = [];
+  const mirrors = (await communityMirrors()).slice(0, MAX_MIRROR_ATTEMPTS);
   for (const mirror of mirrors) {
     try {
       return await downloadFromMirror(mirror, filename, expectedSha256);
@@ -341,15 +371,12 @@ async function downloadArchive(
       core.info(`Mirror failed (${mirror}): ${errorMessage(error)}`);
     }
   }
-  const official = version.includes("-dev")
-    ? `${ZIGLANG_ORG}/builds`
-    : `${ZIGLANG_ORG}/download/${version}`;
-  if (errors.length > 0) {
-    core.warning(
-      `All ${String(errors.length)} community mirrors failed; trying ziglang.org`,
-    );
+  try {
+    return await downloadFromUrl(officialUrl, filename, expectedSha256);
+  } catch (error) {
+    errors.push(`ziglang.org: ${errorMessage(error)}`);
   }
-  return await downloadFromMirror(official, filename, expectedSha256);
+  throw new Error(`Could not download ${filename}: ${errors.join("; ")}`);
 }
 
 async function findExtractedToolchain(
@@ -377,17 +404,10 @@ async function markerMatches(
       await fs.readFile(path.join(installDir, ".setup-zig.json"), "utf8"),
     ) as Record<string, unknown>;
     if (
-      !Object.entries(expected).every(
-        ([key, value]) => marker[key] === value,
-      ) ||
-      typeof marker.binary_sha256 !== "string" ||
-      !SHA256_RE.test(marker.binary_sha256)
+      !Object.entries(expected).every(([key, value]) => marker[key] === value)
     )
       return false;
-    return (
-      marker.binary_sha256 ===
-      (await sha256File(path.join(installDir, binaryName)))
-    );
+    return existsSync(path.join(installDir, binaryName));
   } catch {
     return false;
   }
@@ -400,6 +420,7 @@ async function installToolchain({
   filename,
   useCache,
   expectedSha256,
+  officialUrl,
 }: InstallToolchainOptions): Promise<InstalledToolchain> {
   const binaryName = platform === "windows" ? "zig.exe" : "zig";
   const tempRoot = process.env.RUNNER_TEMP ?? os.tmpdir();
@@ -415,6 +436,7 @@ async function installToolchain({
 
   if (useCache) {
     try {
+      const cache = await loadCache();
       const restored = await cache.restoreCache([installDir], cacheKey);
       cacheHit =
         Boolean(restored) &&
@@ -432,7 +454,7 @@ async function installToolchain({
   if (!cacheHit) {
     await fs.rm(installDir, { recursive: true, force: true });
     const { archivePath, archiveDirectory } = await downloadArchive(
-      version,
+      officialUrl,
       filename,
       expectedSha256,
     );
@@ -441,17 +463,15 @@ async function installToolchain({
     );
     try {
       core.info(`Extracting ${filename}`);
-      if (platform === "windows") await tc.extractZip(archivePath, extractRoot);
-      else await tc.extractTar(archivePath, extractRoot, "xJ");
+      await execFileAsync("tar", ["-xf", archivePath, "-C", extractRoot], {
+        windowsHide: true,
+      });
       const extracted = await findExtractedToolchain(extractRoot, binaryName);
       await fs.mkdir(path.dirname(installDir), { recursive: true });
       await fs.rename(extracted, installDir);
       await fs.writeFile(
         path.join(installDir, ".setup-zig.json"),
-        JSON.stringify({
-          ...marker,
-          binary_sha256: await sha256File(path.join(installDir, binaryName)),
-        }),
+        JSON.stringify(marker),
         "utf8",
       );
     } finally {
@@ -459,14 +479,8 @@ async function installToolchain({
       await fs.rm(archiveDirectory, { recursive: true, force: true });
     }
     if (useCache) {
-      try {
-        await cache.saveCache([installDir], cacheKey);
-      } catch (error) {
-        const message = errorMessage(error);
-        if (!message.includes("already exists")) {
-          core.warning(`Could not save the toolchain cache: ${message}`);
-        }
-      }
+      core.saveState("toolchain-cache-key", cacheKey);
+      core.saveState("toolchain-cache-path", installDir);
     }
   } else {
     core.info(`Restored Zig ${version} from the toolchain cache`);
@@ -475,6 +489,8 @@ async function installToolchain({
     installDir,
     binaryPath: path.join(installDir, binaryName),
     cacheHit,
+    cacheKey,
+    source: cacheHit ? "cache" : "download",
   };
 }
 
@@ -482,15 +498,20 @@ async function restoreBuildCache({
   platform,
   arch,
   version,
-  zigEnvironment,
-}: RestoreBuildCacheOptions): Promise<boolean> {
+  runnerImage,
+}: RestoreBuildCacheOptions): Promise<RestoredBuildCache> {
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
-  const globalCacheDir = zigEnvironment.global_cache_dir;
-  if (typeof globalCacheDir !== "string" || !globalCacheDir) {
-    throw new Error("zig env did not report global_cache_dir");
-  }
+  const tempRoot = process.env.RUNNER_TEMP ?? os.tmpdir();
+  const globalCacheDir = path.join(
+    tempRoot,
+    "setup-zig-cache",
+    safeKeySegment(version),
+    `${arch}-${platform}`,
+    "global",
+  );
   const localCacheDir =
     process.env.ZIG_LOCAL_CACHE_DIR ?? path.join(workspace, ".zig-cache");
+  core.exportVariable("ZIG_GLOBAL_CACHE_DIR", globalCacheDir);
   core.exportVariable("ZIG_LOCAL_CACHE_DIR", localCacheDir);
 
   const extraPaths = lines(core.getInput("cache-path"));
@@ -514,17 +535,19 @@ async function restoreBuildCache({
   ]
     .filter(Boolean)
     .join("\n");
+  const glob = await import("@actions/glob");
   const dependencyHash = await hashDependencyFiles(dependencyPatterns, glob);
   const { key, restoreKeys } = buildCacheKey({
     platform,
     arch,
     version,
-    target: zigEnvironment.target,
+    runnerImage,
     userKey: core.getInput("cache-key"),
     dependencyHash,
   });
   let restoredKey = "";
   try {
+    const cache = await loadCache();
     restoredKey =
       (await cache.restoreCache(cachePaths, key, restoreKeys)) ?? "";
     core.info(
@@ -540,15 +563,23 @@ async function restoreBuildCache({
   core.saveState("build-cache-key", key);
   core.saveState("build-cache-paths", JSON.stringify(cachePaths));
   core.saveState("restored-cache-key", restoredKey);
-  return Boolean(restoredKey);
+  return {
+    anyHit: restoredKey !== "",
+    exactHit: restoredKey === key,
+    key,
+    matchedKey: restoredKey,
+  };
 }
 
 async function main(): Promise<void> {
+  const setupStartedAt = performance.now();
   try {
     const { platform, arch } = detectPlatformAndArch();
+    const versionStartedAt = performance.now();
     const { requested, version, index } = await resolveVersion(
       core.getInput("version"),
     );
+    const versionResolutionMs = performance.now() - versionStartedAt;
     const minimumVersion = core.getInput("minimum-version").trim();
     if (minimumVersion) assertMinimumVersion(version, minimumVersion);
     const filename = getTarballFilename(version, arch, platform);
@@ -567,24 +598,55 @@ async function main(): Promise<void> {
     if (expectedSha256 && !SHA256_RE.test(expectedSha256)) {
       throw new Error("Zig's download index contained an invalid SHA-256");
     }
+    const officialUrl =
+      metadata?.tarball ??
+      `${
+        version.includes("-dev")
+          ? `${ZIGLANG_ORG}/builds`
+          : `${ZIGLANG_ORG}/download/${version}`
+      }/${filename}`;
 
     const useCache = core.getBooleanInput("cache");
     const useToolchainCache =
       useCache && core.getBooleanInput("cache-toolchain");
-    const installed = await installToolchain({
+    const useBuildCache = useCache && core.getBooleanInput("cache-build");
+    const runnerImage = process.env.ImageOS ?? `${platform}-${arch}`;
+    const toolchainStartedAt = performance.now();
+    const installedPromise = installToolchain({
       platform,
       arch,
       version,
       filename,
       useCache: useToolchainCache,
       expectedSha256,
-    });
+      officialUrl,
+    }).then((installed) => ({
+      installed,
+      durationMs: performance.now() - toolchainStartedAt,
+    }));
+    const buildCacheStartedAt = performance.now();
+    const buildCachePromise = useBuildCache
+      ? restoreBuildCache({ platform, arch, version, runnerImage }).then(
+          (result) => ({
+            ...result,
+            durationMs: performance.now() - buildCacheStartedAt,
+          }),
+        )
+      : Promise.resolve({
+          anyHit: false,
+          exactHit: false,
+          key: "",
+          matchedKey: "",
+          durationMs: 0,
+        });
+    const [{ installed, durationMs: toolchainDurationMs }, buildCache] =
+      await Promise.all([installedPromise, buildCachePromise]);
     core.addPath(installed.installDir);
 
-    const versionResult = await exec.getExecOutput(
+    const versionResult = await execFileAsync(
       installed.binaryPath,
       ["version"],
-      { silent: true },
+      { encoding: "utf8", windowsHide: true },
     );
     const installedVersion = versionResult.stdout.trim();
     if (installedVersion !== version) {
@@ -592,33 +654,43 @@ async function main(): Promise<void> {
         `Installed Zig reported version '${installedVersion}', expected '${version}'`,
       );
     }
-    const envResult = await exec.getExecOutput(installed.binaryPath, ["env"], {
-      silent: true,
-    });
-    let zigEnvironment: ZigEnvironment;
-    try {
-      zigEnvironment = JSON.parse(envResult.stdout) as ZigEnvironment;
-    } catch {
-      zigEnvironment = parse<ZigEnvironment>(envResult.stdout, {
-        enumLiteral: "string",
-      });
-    }
     core.info(`Installed Zig ${installedVersion} at ${installed.installDir}`);
-
-    let buildCacheHit = false;
-    if (useCache) {
-      buildCacheHit = await restoreBuildCache({
-        platform,
-        arch,
-        version: installedVersion,
-        zigEnvironment,
-      });
-    }
+    const setupDurationMs = performance.now() - setupStartedAt;
 
     core.setOutput("version", installedVersion);
     core.setOutput("path", installed.installDir);
-    core.setOutput("cache-hit", String(buildCacheHit));
+    core.setOutput("cache-hit", String(buildCache.anyHit));
+    core.setOutput("build-cache-hit", String(buildCache.anyHit));
+    core.setOutput("build-cache-exact-hit", String(buildCache.exactHit));
+    core.setOutput("build-cache-key", buildCache.key);
+    core.setOutput("build-cache-matched-key", buildCache.matchedKey);
     core.setOutput("toolchain-cache-hit", String(installed.cacheHit));
+    core.setOutput("toolchain-cache-key", installed.cacheKey);
+    core.setOutput("toolchain-source", installed.source);
+    core.setOutput("platform", platform);
+    core.setOutput("arch", arch);
+    core.setOutput("runner-image", runnerImage);
+    const timings = {
+      versionResolutionMs: Math.round(versionResolutionMs),
+      toolchainMs: Math.round(toolchainDurationMs),
+      buildCacheMs: Math.round(buildCache.durationMs),
+      setupMs: Math.round(setupDurationMs),
+    };
+    core.setOutput(
+      "version-resolution-ms",
+      String(timings.versionResolutionMs),
+    );
+    core.setOutput("toolchain-ms", String(timings.toolchainMs));
+    core.setOutput("build-cache-ms", String(timings.buildCacheMs));
+    core.setOutput("setup-ms", String(timings.setupMs));
+    core.setOutput("timings", JSON.stringify(timings));
+    core.setOutput("cache-mode", process.env.ACTIONS_CACHE_MODE ?? "default");
+    core.info(
+      `Setup completed in ${String(timings.setupMs)} ms ` +
+        `(version ${String(timings.versionResolutionMs)} ms, ` +
+        `toolchain ${String(timings.toolchainMs)} ms, ` +
+        `build cache ${String(timings.buildCacheMs)} ms)`,
+    );
   } catch (error) {
     core.setFailed(errorMessage(error));
   }

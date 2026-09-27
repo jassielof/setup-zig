@@ -1,8 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as core from "@actions/core";
-import * as cache from "@actions/cache";
-import * as glob from "@actions/glob";
 
 interface RunningTotal {
   value: number;
@@ -44,6 +42,7 @@ async function pathSize(
 }
 
 async function cacheSize(patterns: string[], limit: number): Promise<number> {
+  const glob = await import("@actions/glob");
   const globber = await glob.create(patterns.join("\n"), {
     followSymbolicLinks: false,
   });
@@ -57,7 +56,25 @@ async function cacheSize(patterns: string[], limit: number): Promise<number> {
   return total.value;
 }
 
-async function main(): Promise<void> {
+async function saveToolchainCache(): Promise<void> {
+  const key = core.getState("toolchain-cache-key");
+  const cachePath = core.getState("toolchain-cache-path");
+  if (!key || !cachePath) return;
+  try {
+    const cache = await import("@actions/cache");
+    await cache.saveCache([cachePath], key);
+    core.info(`Saved Zig toolchain cache '${key}'`);
+  } catch (error) {
+    const message = errorMessage(error);
+    if (message.includes("already exists")) {
+      core.info(`Zig toolchain cache '${key}' already exists`);
+    } else {
+      core.warning(`Could not save the Zig toolchain cache: ${message}`);
+    }
+  }
+}
+
+async function saveBuildCache(): Promise<void> {
   const key = core.getState("build-cache-key");
   const restoredKey = core.getState("restored-cache-key");
   const pathsJson = core.getState("build-cache-paths");
@@ -99,6 +116,7 @@ async function main(): Promise<void> {
       core.info(`Zig build cache size: ${(size / 1024 / 1024).toFixed(1)} MiB`);
     }
 
+    const cache = await import("@actions/cache");
     await cache.saveCache(paths, key);
     core.info(`Saved Zig build cache '${key}'`);
   } catch (error) {
@@ -107,6 +125,10 @@ async function main(): Promise<void> {
       core.info(`Zig build cache '${key}' already exists`);
     } else core.warning(`Could not save the Zig build cache: ${message}`);
   }
+}
+
+async function main(): Promise<void> {
+  await Promise.all([saveToolchainCache(), saveBuildCache()]);
 }
 
 await main();

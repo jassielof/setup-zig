@@ -20,9 +20,7 @@
   "dependencies": {
     "@actions/cache": "^6.2.0",
     "@actions/core": "^3.0.1",
-    "@actions/exec": "^3.0.0",
     "@actions/glob": "^0.7.0",
-    "@actions/tool-cache": "^4.0.0",
     "@jassiel/zon": "jsr:0.1.0",
     "semver": "^7.8.5"
   },

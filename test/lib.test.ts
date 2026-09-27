@@ -8,7 +8,6 @@ import {
   lines,
   parseMirrorList,
   safeKeySegment,
-  shuffle,
   validateMirrorUrl,
   validateResolvedVersion,
   versionLessThan,
@@ -79,28 +78,22 @@ await test("accepts only safe community mirror URLs", () => {
   );
 });
 
-await test("shuffle does not mutate its input", () => {
-  const input = ["a", "b", "c"];
-  assert.deepEqual(
-    shuffle(input, () => 0),
-    ["b", "c", "a"],
-  );
-  assert.deepEqual(input, ["a", "b", "c"]);
-});
-
 await test("cache keys sanitize user-controlled text", () => {
   assert.equal(safeKeySegment(" linux / release "), "linux-release");
   const result = buildCacheKey({
     platform: "linux",
     arch: "x86_64",
     version: "0.15.2",
-    target: "x86_64-linux.6.11...6.11-gnu.2.40",
+    runnerImage: "ubuntu24",
     userKey: "Debug / native",
     dependencyHash: "abc",
   });
   assert.equal(
     result.key,
-    "setup-zig-build-v4-linux-x86_64-0.15.2-x86_64-linux.6.11...6.11-gnu.2.40-Debug-native-abc",
+    "setup-zig-build-v5-linux-x86_64-0.15.2-ubuntu24-Debug-native-abc",
   );
+  assert.deepEqual(result.restoreKeys, [
+    "setup-zig-build-v5-linux-x86_64-0.15.2-ubuntu24-Debug-native-",
+  ]);
   assert.deepEqual(lines("a\r\n\n b \n"), ["a", "b"]);
 });

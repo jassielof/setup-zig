@@ -30,6 +30,9 @@ inputs:
   cache-toolchain:
     description: Cache the extracted Zig toolchain when cache is enabled.
     default: "true"
+  cache-build:
+    description: Cache Zig's global and project-local build data when cache is enabled.
+    default: "true"
   cache-key:
     description: >-
       Extra build-cache key segment. Use this for build options that affect
@@ -48,7 +51,7 @@ inputs:
     required: false
   cache-size-limit:
     description: Maximum build-cache upload size in MiB. Zero disables the limit.
-    default: "2048"
+    default: "0"
 
 outputs:
   version:
@@ -57,8 +60,38 @@ outputs:
     description: Directory containing the Zig executable.
   cache-hit:
     description: Whether any compatible Zig build cache was restored.
+  build-cache-hit:
+    description: Whether any compatible Zig build cache was restored.
+  build-cache-exact-hit:
+    description: Whether the primary Zig build-cache key matched exactly.
+  build-cache-key:
+    description: Primary Zig build-cache key.
+  build-cache-matched-key:
+    description: Exact or fallback Zig build-cache key that was restored.
   toolchain-cache-hit:
     description: Whether the extracted Zig toolchain was already cached.
+  toolchain-cache-key:
+    description: Zig toolchain cache key.
+  toolchain-source:
+    description: Whether Zig came from cache or a verified download.
+  platform:
+    description: Resolved Zig platform name.
+  arch:
+    description: Resolved Zig architecture name.
+  runner-image:
+    description: Runner image discriminator used for build caching.
+  version-resolution-ms:
+    description: Time spent resolving the requested Zig version in milliseconds.
+  toolchain-ms:
+    description: Time spent restoring or installing the Zig toolchain in milliseconds.
+  build-cache-ms:
+    description: Time spent preparing and restoring the Zig build cache in milliseconds.
+  setup-ms:
+    description: Total action setup time in milliseconds.
+  timings:
+    description: JSON object containing all setup timing measurements.
+  cache-mode:
+    description: Effective GitHub Actions cache access mode reported by the runner.
 
 runs:
   using: node24

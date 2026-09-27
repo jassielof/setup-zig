@@ -46,13 +46,17 @@ For a matrix whose build settings are not represented by `build.zig` or
 | `mirror`                | community mirror list           | An HTTPS mirror override. When set, no other host is tried.                         |
 | `cache`                 | `true`                          | Cache the toolchain and Zig build data.                                             |
 | `cache-toolchain`       | `true`                          | Cache the extracted toolchain. Has no effect when `cache` is false.                 |
+| `cache-build`           | `true`                          | Cache Zig's global and project-local build data.                                    |
 | `cache-key`             | empty                           | Extra cache discriminator for target, optimization mode, or other build settings.   |
 | `cache-dependency-path` | `build.zig` and `build.zig.zon` | Newline-separated globs hashed into the build-cache key.                            |
 | `cache-path`            | empty                           | Additional newline-separated cache paths or globs.                                  |
-| `cache-size-limit`      | `2048`                          | Skip the build-cache upload above this size in MiB. Set to `0` for no limit.        |
+| `cache-size-limit`      | `0`                             | Skip the build-cache upload above this size in MiB. `0` avoids the size scan.       |
 
-The action exposes `version`, `path`, `cache-hit`, and `toolchain-cache-hit`
-outputs.
+The primary outputs are `version`, `path`, `cache-hit`,
+`build-cache-exact-hit`, `toolchain-cache-hit`, and `toolchain-source`. It also
+exposes the matched cache keys, resolved platform, architecture, runner image,
+and `version-resolution-ms`, `toolchain-ms`, `build-cache-ms`, and `setup-ms`
+timings for performance monitoring.
 
 ## Caching
 
@@ -60,16 +64,17 @@ There are two independent cache entries:
 
 - The extracted toolchain is keyed by runner platform, architecture, and exact
   Zig version. A hit avoids both downloading and extracting Zig.
-- Build data includes the `global_cache_dir` reported by `zig env`, the project
-  local cache, and any `cache-path` entries. Its key also includes the exact Zig
-  version, host target reported by `zig env`, dependency-file hash, and
-  `cache-key`. Including the host target prevents native build objects from
-  being restored across incompatible OS or SDK versions.
+- Build data includes a deterministic global cache directory, the project local
+  cache, and any `cache-path` entries. Its key also includes the exact Zig
+  version, GitHub runner image, dependency-file hash, and `cache-key`.
 
-The action sets `ZIG_LOCAL_CACHE_DIR` to `.zig-cache` in the workspace unless it
-is already set. It does not cache `zig-out` by default: that directory is build
-output, not Zig's incremental cache. Add it through `cache-path` only when a
-workflow specifically needs it.
+Toolchain and build-cache restores run concurrently. Cache misses are uploaded
+concurrently in the post step after a successful job, so uploads do not delay
+setup or the user's build. The action sets `ZIG_GLOBAL_CACHE_DIR` to an isolated
+runner-temporary directory and `ZIG_LOCAL_CACHE_DIR` to `.zig-cache` in the
+workspace unless already set. It does not cache `zig-out` by default: that
+directory is build output, not Zig's incremental cache. Add it through
+`cache-path` only when a workflow specifically needs it.
 
 ### Zig 0.16 and `zig-pkg`
 
@@ -103,8 +108,9 @@ cache-path: |-
 ```
 
 Cache restore and upload failures are warnings and do not fail a successful
-build. Build caches are uploaded only after a successful job and are not deleted
-when they exceed `cache-size-limit`.
+build. Caches are uploaded only after a successful job and are not deleted when
+they exceed `cache-size-limit`. Set a positive limit only when the extra
+recursive size scan is worth enforcing.
 
 To disable caching entirely:
 
@@ -118,8 +124,10 @@ To disable caching entirely:
 
 By default, the action fetches Zig's current
 [community mirror list](https://ziglang.org/download/community-mirrors.txt),
-tries up to three mirrors in randomized order, and then falls back to
-ziglang.org. A bundled copy of the list covers outages of ziglang.org.
+tries up to three mirrors in the list's maintained priority order, and then
+falls back to ziglang.org. Downloads and signatures begin concurrently, archive
+checksums are computed while streaming, and extraction uses the runner's native
+`tar` implementation on every supported OS.
 
 Every downloaded archive is verified against the Zig Software Foundation's
 minisign public key. The signed filename is checked as well, which prevents a
