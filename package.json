@@ -18,7 +18,7 @@
   "packageManager": "pnpm@11.8.0",
   "type": "module",
   "dependencies": {
-    "@actions/cache": "^6.2.0",
+    "@actions/cache": "^6.3.0",
     "@actions/core": "^3.0.1",
     "@actions/glob": "^0.7.0",
     "@jassiel/zon": "jsr:0.1.0",
